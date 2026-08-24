@@ -1,0 +1,106 @@
+name: Package CI
+
+on:
+  workflow_call:
+    secrets:
+      PACKAGES_READ_TOKEN:
+        description: Token with read:packages access to the @metanull scope on GitHub Packages
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      - name: Test
+        run: npm run test
+
+  pack:
+    name: Pack tarball
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      - name: Build
+        run: npm run build --if-present
+      - name: Pack
+        run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-tarball
+          path: "*.tgz"
+          retention-days: 1
+
+  dependents:
+    name: Read dependents.json
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+      count: ${{ steps.read.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read dependents.json
+        id: read
+        run: |
+          if [ -f dependents.json ]; then
+            matrix="$(jq -c . dependents.json)"
+          else
+            matrix="[]"
+          fi
+          count="$(echo "$matrix" | jq 'length')"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" -eq 0 ]; then
+            echo "::notice::dependents.json is empty - no downstream builds to run."
+          fi
+
+  downstream:
+    name: "Downstream: ${{ matrix.repo }}"
+    needs: [pack, dependents]
+    if: needs.dependents.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: ${{ fromJSON(needs.dependents.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-tarball
+          path: ${{ runner.temp }}/tarball
+      - name: Install dependencies with this PR's package build
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+        run: |
+          npm ci
+          npm install --no-save "$RUNNER_TEMP"/tarball/*.tgz
+      - name: Build dependent
+        run: npm run build
+      - name: Test dependent
+        run: npm run test

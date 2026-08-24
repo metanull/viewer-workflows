@@ -1,0 +1,94 @@
+name: Website CI
+
+on:
+  workflow_call:
+    secrets:
+      PACKAGES_READ_TOKEN:
+        description: Token with read:packages access to the @metanull scope on GitHub Packages
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      - name: Build
+        run: npm run build
+
+  test:
+    name: Test (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      - name: Test
+        run: npm run test
+
+  lint:
+    name: Lint (reported, non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      # setup-node registers the eslint-stylish problem matcher, so findings
+      # surface as PR annotations; continue-on-error keeps the workflow green.
+      - name: ESLint
+        continue-on-error: true
+        run: npm run lint
+
+  audit:
+    name: Audit (reported, non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      - name: npm audit
+        continue-on-error: true
+        run: |
+          set +e
+          audit_output="$(npm audit 2>&1)"
+          status=$?
+          {
+            echo "## npm audit"
+            echo ""
+            echo '```'
+            echo "$audit_output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::npm audit reported vulnerabilities - see the Audit job summary for details."
+          fi
+          exit "$status"

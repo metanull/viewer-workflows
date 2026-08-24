@@ -1,0 +1,40 @@
+name: Dependabot auto-merge
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Auto-merge safe updates
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+      # Auto-merge: minor/patch bumps of the two platform packages, and patch
+      # bumps of dev dependencies. Major bumps are left for a human.
+      - name: Enable auto-merge
+        if: >-
+          (
+            (
+              contains(steps.metadata.outputs.dependency-names, '@metanull/viewer-core') ||
+              contains(steps.metadata.outputs.dependency-names, '@metanull/viewer-layout')
+            ) &&
+            (
+              steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+              steps.metadata.outputs.update-type == 'version-update:semver-patch'
+            )
+          ) ||
+          (
+            steps.metadata.outputs.dependency-type == 'direct:development' &&
+            steps.metadata.outputs.update-type == 'version-update:semver-patch'
+          )
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"

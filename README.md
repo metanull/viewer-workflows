@@ -4,11 +4,13 @@ Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them 
 
 | Workflow | For | Purpose | Inputs | Secrets | Repo prerequisites |
 |---|---|---|---|---|---|
-| `website-ci.yml` | website repos | PR checks: build + test (blocking), ESLint + npm audit (reported only) | — | `PACKAGES_READ_TOKEN` | npm scripts `build`, `test`, `lint` |
-| `website-deploy-pages.yml` | website repos | Build with `BASE_PATH` and deploy `dist/` to GitHub Pages | `base_path` (optional, default `/<repo-name>/`) | `PACKAGES_READ_TOKEN` | Pages source set to "GitHub Actions" |
+| `website-ci.yml` | website repos | PR checks: build + test (blocking), ESLint + npm audit (reported only) | — | `PACKAGES_READ_TOKEN`¹ | npm scripts `build`, `test`, `lint` |
+| `website-deploy-pages.yml` | website repos | Build with `BASE_PATH` and deploy `dist/` to GitHub Pages | `base_path` (optional, default `/<repo-name>/`) | `PACKAGES_READ_TOKEN`¹ | Pages source set to "GitHub Actions" |
 | `locale-validate.yml` | website repos | Validate `locales/*.json` against `en.json` (JSON validity, key parity, placeholder integrity, no HTML); auto-merge locale-only PRs when green; plain-language PR comment on failure | — (output: `locales_only`) | — | "Allow auto-merge" enabled |
 | `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of `@metanull/viewer-core` / `@metanull/viewer-layout` and dev-dependency patches; majors wait for a human | — | — | "Allow auto-merge" enabled |
-| `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | `PACKAGES_READ_TOKEN` | — |
+| `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | `PACKAGES_READ_TOKEN`¹ | — |
+
+¹ Optional since v1.1.0: when the secret is not set, the workflow falls back to `github.token`, which can install **public** `@metanull` packages. Set the real `read:packages` PAT as soon as the repo consumes a private package (e.g. a `@metanull/<dataset>-data` published from a private repo).
 | `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over `dependents.json` using the PR's tarball | — | `PACKAGES_READ_TOKEN` | `dependents.json` at repo root (JSON array of `owner/repo`) |
 | `package-release.yml` | package repos | `npm publish` to GitHub Packages, version taken from the release tag | — | `PACKAGES_READ_TOKEN` | `publishConfig.registry` set to `https://npm.pkg.github.com` |
 

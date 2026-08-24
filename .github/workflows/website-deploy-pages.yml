@@ -7,14 +7,10 @@ on:
         description: Base path the site is built for (defaults to /<repo-name>/)
         required: false
         type: string
-    secrets:
-      PACKAGES_READ_TOKEN:
-        description: >-
-          Token with read:packages access to the @metanull scope on GitHub Packages.
-          Optional - falls back to github.token, which reaches public @metanull
-          packages; required once the repo consumes a private package.
-        required: false
 
+# github.token installs private @metanull packages, provided the package has
+# granted this repository access ("Manage Actions access" in the package
+# settings). No PAT or repository secret is involved.
 permissions:
   contents: read
   packages: read
@@ -38,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
       - name: Build
         run: npm run build
         env:

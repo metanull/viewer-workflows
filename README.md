@@ -25,6 +25,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  packages: read
 jobs:
   ci:
     uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1
@@ -42,6 +43,7 @@ on:
     branches: [main]
 permissions:
   contents: read
+  packages: read
   pages: write
   id-token: write
 jobs:
@@ -75,6 +77,7 @@ on:
 permissions:
   contents: read
   issues: write
+  packages: read
 jobs:
   audit:
     uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@v1

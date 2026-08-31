@@ -190,7 +190,9 @@ function propagateTo(repo, { dryRun, merge }) {
     run('git', ['checkout', '-b', BRANCH], { cwd: work, stdio: 'pipe' })
     run('git', ['add', 'package.json', 'package-lock.json'], { cwd: work, stdio: 'pipe' })
 
-    const body = join(work, '.propagate-message')
+    // Outside the clone: a file written inside it would be an untracked change,
+    // and `gh pr create` warns about a dirty tree.
+    const body = join(tmpdir(), `propagate-message-${process.pid}`)
     writeFileSync(
       body,
       `chore(deps): adopt the published ${SCOPE} packages\n\n` +
@@ -203,7 +205,9 @@ function propagateTo(repo, { dryRun, merge }) {
     run('git', ['commit', '-F', body], { cwd: work, stdio: 'pipe' })
     run('git', ['push', '-u', 'origin', BRANCH], { cwd: work, stdio: 'pipe' })
 
-    const url = gh(['pr', 'create', '--repo', repo, '--fill'], { cwd: work })
+    // --head is required alongside --repo: with an explicit repo, `gh` does not
+    // infer the branch from the working directory.
+    const url = gh(['pr', 'create', '--repo', repo, '--head', BRANCH, '--fill'], { cwd: work })
     if (merge) gh(['pr', 'merge', url, '--repo', repo, '--auto', '--squash'], { cwd: work })
 
     return { repo, status: dryRun ? 'would-update' : 'opened', detail: url }

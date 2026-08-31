@@ -158,20 +158,39 @@ jobs:
   # Require `ci / Downstream (all)` instead. It never changes, however many
   # websites exist, so creating one needs no settings change anywhere.
   #
-  # `if: always()` because this has to report even when the matrix fails, and
-  # `skipped` counts as success because `downstream` is skipped when no
-  # websites were discovered.
+  # `if: always()` because this has to report even when the matrix fails.
   downstream-success:
     name: Downstream (all)
-    needs: [downstream]
+    needs: [dependents, downstream]
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # Zero websites is a FAILURE, not a quiet pass.
+      #
+      # An empty matrix skips `downstream` entirely, and a skipped job reports
+      # `skipped` — so treating that as success makes this check report green
+      # while validating nothing. That is not hypothetical: deleting
+      # dependents.json while the calling repository still pinned a version
+      # that read it produced exactly this, and the whole downstream canary
+      # went silently dark behind a green tick.
+      #
+      # There is no legitimate zero. The platform always has websites; a count
+      # of none means discovery is broken.
+      - name: Check that websites were discovered
+        run: |
+          count='${{ needs.dependents.outputs.count }}'
+          echo "websites discovered: $count"
+          if [ "$count" = "0" ] || [ -z "$count" ]; then
+            echo "::error::No websites were discovered, so nothing was built downstream. \
+          This check exists to prevent a package change merging unvalidated - \
+          investigate the Discover websites job rather than bypassing this."
+            exit 1
+          fi
       - name: Check the downstream matrix
         run: |
           result='${{ needs.downstream.result }}'
           echo "downstream matrix result: $result"
           case "$result" in
-            success|skipped) exit 0 ;;
+            success) exit 0 ;;
             *) echo "::error::At least one downstream build failed - see the Downstream jobs."; exit 1 ;;
           esac

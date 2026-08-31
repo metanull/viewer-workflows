@@ -16,14 +16,23 @@ jobs:
       - name: Fetch Dependabot metadata
         id: metadata
         uses: dependabot/fetch-metadata@v3
-      # Auto-merge: minor/patch bumps of the two platform packages, and patch
-      # bumps of dev dependencies. Major bumps are left for a human.
+      # Auto-merge: minor/patch bumps of the two platform packages and of the
+      # reusable workflows themselves, plus patch bumps of dev dependencies.
+      # Major bumps are left for a human.
+      #
+      # metanull/viewer-workflows is here because consumers pin it to an exact
+      # version rather than a moving `v1` tag, so a release reaches them as a
+      # Dependabot pull request. That PR runs this repository's full CI before
+      # merging, which is the verification the old force-moved tag never had —
+      # so letting a green minor/patch merge itself keeps propagation automatic
+      # without giving up the check.
       - name: Enable auto-merge
         if: >-
           (
             (
               contains(steps.metadata.outputs.dependency-names, '@metanull/viewer-core') ||
-              contains(steps.metadata.outputs.dependency-names, '@metanull/viewer-layout')
+              contains(steps.metadata.outputs.dependency-names, '@metanull/viewer-layout') ||
+              contains(steps.metadata.outputs.dependency-names, 'metanull/viewer-workflows')
             ) &&
             (
               steps.metadata.outputs.update-type == 'version-update:semver-minor' ||

@@ -130,5 +130,39 @@ jobs:
 
 ## Versioning
 
-- Tags: immutable `vX.Y.Z` releases plus a moving `v1` tag pointing at the latest `v1.x.y`.
-- After releasing `vX.Y.Z` on the 1.x line: `git tag -f v1 vX.Y.Z && git push origin v1 --force`.
+**Tags are immutable. Nothing is ever force-moved.**
+
+- Release `vX.Y.Z` and stop. There is no moving major tag to update.
+- Consumers pin the exact version:
+  `uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.2.0`
+- Every consumer declares the `github-actions` Dependabot ecosystem, so a new
+  release arrives there as a pull request. Dependabot covers
+  [reusable-workflow refs](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot),
+  not just step-level actions.
+
+To release: tag `vX.Y.Z` on `main`, push the tag, done. Dependabot does the rest
+on its weekly run; to propagate immediately, use **Insights → Dependency graph →
+Dependabot → Check for updates** on the consumers.
+
+### Why not a moving `v1`
+
+A floating major tag is GitHub's normal convention for actions, and this repo
+used one until v1.2.0. It fits this platform badly:
+
+- **It ships unverified CI to every repo at once.** `package-ci.yml` builds
+  every `dependents.json` entry against a packed tarball before a *package*
+  change can merge — but a *workflow* change had no equivalent check, and a
+  broken workflow breaks all ten repos rather than one package's consumers.
+  Pinning exactly means each repo runs its own CI, including the full
+  `Downstream` matrix, before it adopts a release.
+- **A force-moved tag has no audit trail.** Nothing records what `v1` pointed at
+  last week or when a given repo started using it. With exact pins, `git log`
+  answers both, and a rollback is reverting one pull request in one repo instead
+  of another force-push under pressure.
+
+The cost is one pull request per consumer per release instead of none.
+`dependabot-automerge.yml` absorbs that: minor and patch bumps merge themselves
+once CI is green, and majors wait for a human.
+
+`v1` still exists, frozen at v1.1.2. It is deliberately not deleted — anything
+still pointing at it keeps working — but nothing should newly reference it.

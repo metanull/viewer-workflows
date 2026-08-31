@@ -78,6 +78,7 @@ jobs:
     needs: [pack, dependents]
     if: needs.dependents.outputs.count != '0'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:

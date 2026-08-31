@@ -16,9 +16,8 @@ jobs:
       - name: Fetch Dependabot metadata
         id: metadata
         uses: dependabot/fetch-metadata@v3
-      # Auto-merge: minor/patch bumps of the two platform packages and of the
-      # reusable workflows themselves, plus patch bumps of dev dependencies.
-      # Major bumps are left for a human.
+      # Auto-merge: minor/patch bumps of the reusable workflows themselves,
+      # plus patch bumps of dev dependencies. Majors are left for a human.
       #
       # metanull/viewer-workflows is here because consumers pin it to an exact
       # version rather than a moving `v1` tag, so a release reaches them as a
@@ -26,14 +25,16 @@ jobs:
       # merging, which is the verification the old force-moved tag never had —
       # so letting a green minor/patch merge itself keeps propagation automatic
       # without giving up the check.
+      #
+      # The @metanull npm packages are deliberately NOT listed. Dependabot
+      # cannot read npm.pkg.github.com — it has no route to a token, even for a
+      # public package — so `.github/dependabot.yml` ignores that scope and no
+      # such pull request can ever exist. Those packages are propagated by the
+      # operator instead; see MAINTENANCE.md.
       - name: Enable auto-merge
         if: >-
           (
-            (
-              contains(steps.metadata.outputs.dependency-names, '@metanull/viewer-core') ||
-              contains(steps.metadata.outputs.dependency-names, '@metanull/viewer-layout') ||
-              contains(steps.metadata.outputs.dependency-names, 'metanull/viewer-workflows')
-            ) &&
+            contains(steps.metadata.outputs.dependency-names, 'metanull/viewer-workflows') &&
             (
               steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
               steps.metadata.outputs.update-type == 'version-update:semver-patch'

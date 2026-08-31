@@ -1,15 +1,15 @@
 # viewer-workflows
 
-Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them as `metanull/viewer-workflows/.github/workflows/<file>@v1`.
+Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them by an exact version — `metanull/viewer-workflows/.github/workflows/<file>@v1.4.0`. Tags here are immutable; see [Versioning](#versioning). Platform maintenance procedure: [MAINTENANCE.md](MAINTENANCE.md).
 
 | Workflow | For | Purpose | Inputs | Repo prerequisites |
 |---|---|---|---|---|
 | `website-ci.yml` | website repos | PR checks: build + test (blocking), ESLint + npm audit (reported only) | — | npm scripts `build`, `test`, `lint` |
 | `website-deploy-pages.yml` | website repos | Build with `BASE_PATH` and deploy `dist/` to GitHub Pages | `base_path` (optional, default `/<repo-name>/`) | Pages source set to "GitHub Actions" |
 | `locale-validate.yml` | website repos | Validate `locales/*.json` against `en.json` (JSON validity, key parity, placeholder integrity, no HTML); auto-merge locale-only PRs when green; plain-language PR comment on failure | — (output: `locales_only`) | "Allow auto-merge" enabled |
-| `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of `@metanull/viewer-core` / `@metanull/viewer-layout` and dev-dependency patches; majors wait for a human | — | "Allow auto-merge" enabled |
+| `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of the reusable workflows and dev-dependency patches; majors wait for a human. The `@metanull` npm scope is not covered — Dependabot cannot read it; see [MAINTENANCE.md](MAINTENANCE.md) | — | "Allow auto-merge" enabled |
 | `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | — |
-| `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over `dependents.json` using the PR's tarball | — | `dependents.json` at repo root (JSON array of `owner/repo`) |
+| `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over every website, using the PR's tarball | — | — (websites are discovered from the `website-template` link) |
 | `package-release.yml` | package repos | `npm publish` to GitHub Packages, version taken from the release tag | — | `publishConfig.registry` set to `https://npm.pkg.github.com` |
 
 ## Private package access
@@ -23,8 +23,8 @@ authenticate with the run's own `github.token`:
   with **Read** — this is what lets `github.token` install it. The grant is
   UI-only (no REST endpoint) and takes effect for runs *started after* it: a
   run that failed with `403 permission_denied: read_package` must be re-run.
-  A package repo listed in `dependents.json` builds its dependents, so it needs
-  read access to every private package those dependents consume, too.
+  A package repo builds every website downstream, so it needs read access to
+  every private package those websites consume, too.
 - **Local development**: developers authenticate themselves — `npm login
   --registry=https://npm.pkg.github.com` or a personal `~/.npmrc` with
   `//npm.pkg.github.com/:_authToken=<their own PAT>`. Tokens never go in the
@@ -44,9 +44,9 @@ permissions:
   packages: read
 jobs:
   ci:
-    uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1
+    uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.4.0
   locales:
-    uses: metanull/viewer-workflows/.github/workflows/locale-validate.yml@v1
+    uses: metanull/viewer-workflows/.github/workflows/locale-validate.yml@v1.4.0
 ```
 
 ### `.github/workflows/deploy.yml` (website repos)
@@ -63,7 +63,7 @@ permissions:
   id-token: write
 jobs:
   deploy:
-    uses: metanull/viewer-workflows/.github/workflows/website-deploy-pages.yml@v1
+    uses: metanull/viewer-workflows/.github/workflows/website-deploy-pages.yml@v1.4.0
 ```
 
 ### `.github/workflows/automerge.yml` (all repos)
@@ -77,7 +77,7 @@ permissions:
   pull-requests: write
 jobs:
   automerge:
-    uses: metanull/viewer-workflows/.github/workflows/dependabot-automerge.yml@v1
+    uses: metanull/viewer-workflows/.github/workflows/dependabot-automerge.yml@v1.4.0
 ```
 
 ### `.github/workflows/audit.yml` (all repos)
@@ -94,7 +94,7 @@ permissions:
   packages: read
 jobs:
   audit:
-    uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@v1
+    uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@v1.4.0
 ```
 
 ### `.github/workflows/ci.yml` (package repos)
@@ -110,7 +110,7 @@ permissions:
   packages: read
 jobs:
   ci:
-    uses: metanull/viewer-workflows/.github/workflows/package-ci.yml@v1
+    uses: metanull/viewer-workflows/.github/workflows/package-ci.yml@v1.4.0
 ```
 
 ### `.github/workflows/release.yml` (package repos)
@@ -125,7 +125,7 @@ permissions:
   packages: write
 jobs:
   release:
-    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1
+    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.4.0
 ```
 
 ## Versioning
@@ -134,7 +134,7 @@ jobs:
 
 - Release `vX.Y.Z` and stop. There is no moving major tag to update.
 - Consumers pin the exact version:
-  `uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.2.0`
+  `uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.4.0`
 - Every consumer declares the `github-actions` Dependabot ecosystem, so a new
   release arrives there as a pull request. Dependabot covers
   [reusable-workflow refs](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot),
@@ -150,7 +150,7 @@ A floating major tag is GitHub's normal convention for actions, and this repo
 used one until v1.2.0. It fits this platform badly:
 
 - **It ships unverified CI to every repo at once.** `package-ci.yml` builds
-  every `dependents.json` entry against a packed tarball before a *package*
+  every website against a packed tarball before a *package*
   change can merge — but a *workflow* change had no equivalent check, and a
   broken workflow breaks all ten repos rather than one package's consumers.
   Pinning exactly means each repo runs its own CI, including the full

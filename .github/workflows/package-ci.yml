@@ -15,8 +15,8 @@ jobs:
     name: Test (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
@@ -31,8 +31,8 @@ jobs:
     name: Pack tarball
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
@@ -44,7 +44,7 @@ jobs:
         run: npm run build --if-present
       - name: Pack
         run: npm pack
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package-tarball
           path: "*.tgz"
@@ -57,7 +57,7 @@ jobs:
       matrix: ${{ steps.read.outputs.matrix }}
       count: ${{ steps.read.outputs.count }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Read dependents.json
         id: read
         run: |
@@ -84,14 +84,14 @@ jobs:
       matrix:
         repo: ${{ fromJSON(needs.dependents.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ matrix.repo }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: package-tarball
           path: ${{ runner.temp }}/tarball
@@ -105,3 +105,33 @@ jobs:
         run: npm run build
       - name: Test dependent
         run: npm run test
+
+  # Single stable status for the whole downstream matrix.
+  #
+  # Branch protection requires job NAMES, and the matrix names its jobs after
+  # the repositories in dependents.json — so requiring them directly meant every
+  # dependents.json edit also had to edit the protection settings of both
+  # package repos. Forget to add the context and the canary is silently no
+  # longer required; forget to remove one and every pull request is blocked by a
+  # check that will never report again.
+  #
+  # Require `ci / Downstream (all)` instead. It never changes, however many
+  # dependents there are, so adding a website is a one-line pull request.
+  #
+  # `if: always()` because this has to report even when the matrix fails, and
+  # `skipped` counts as success because `downstream` is skipped when
+  # dependents.json is empty.
+  downstream-success:
+    name: Downstream (all)
+    needs: [downstream]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the downstream matrix
+        run: |
+          result='${{ needs.downstream.result }}'
+          echo "downstream matrix result: $result"
+          case "$result" in
+            success|skipped) exit 0 ;;
+            *) echo "::error::At least one downstream build failed - see the Downstream jobs."; exit 1 ;;
+          esac

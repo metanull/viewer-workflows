@@ -1,0 +1,21 @@
+# This repository owns the action pins for the whole platform — every website
+# and package repo consumes these workflows through `@v1`, and none of them can
+# update an action referenced here. Without this file nothing proposed an
+# update, and the pins drifted up to four major versions behind before anyone
+# noticed (checkout v4 while v7 was current), which is what produced the
+# "Node 20 is being deprecated / forced to run on Node.js 24" warning in every
+# job of every repo.
+#
+# There is no npm ecosystem here: this repo ships workflows, not a package.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+    groups:
+      github-actions:
+        patterns:
+          - "*"

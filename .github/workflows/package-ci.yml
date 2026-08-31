@@ -20,6 +20,8 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@metanull'
       - name: Install dependencies
         run: npm ci
         env:
@@ -36,6 +38,8 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@metanull'
       - name: Install dependencies
         run: npm ci
         env:
@@ -51,26 +55,60 @@ jobs:
           retention-days: 1
 
   dependents:
-    name: Read dependents.json
+    name: Discover websites
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.read.outputs.matrix }}
       count: ${{ steps.read.outputs.count }}
     steps:
-      - uses: actions/checkout@v7
-      - name: Read dependents.json
+      # A website is, by definition, a repository created from
+      # metanull/website-template — GitHub records that permanently as
+      # `template_repository`. Deriving the list from it means a new site is a
+      # downstream consumer the moment it exists, with no file to maintain.
+      #
+      # This replaces the hand-written dependents.json, which had to be edited
+      # in BOTH package repos for every new site and was the source of a
+      # standing maintenance trap.
+      #
+      # The list endpoint omits `template_repository`, so each repo needs its
+      # own call. That is one request per repo the owner has, which is cheap
+      # and well inside the rate limit.
+      #
+      # Blind spot, accepted knowingly: this finds repositories OWNED by the
+      # template's owner that still carry the link. A site created by fork, or
+      # transferred in from elsewhere, would not appear — so the resolved list
+      # and its count are printed on every run, and an unexpected drop is
+      # visible in the log.
+      - name: Discover repositories created from the website template
         id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEMPLATE: ${{ github.repository_owner }}/website-template
         run: |
-          if [ -f dependents.json ]; then
-            matrix="$(jq -c . dependents.json)"
-          else
-            matrix="[]"
-          fi
+          set -euo pipefail
+          repos="$(gh api "users/${{ github.repository_owner }}/repos?per_page=100&type=owner" \
+            --paginate --jq '.[] | select(.archived == false) | .name')"
+          found=""
+          for repo in $repos; do
+            template="$(gh api "repos/${{ github.repository_owner }}/$repo" \
+              --jq '.template_repository.full_name // ""')"
+            if [ "$template" = "$TEMPLATE" ]; then
+              found="$found ${{ github.repository_owner }}/$repo"
+            fi
+          done
+          matrix="$(printf '%s\n' $found | jq -R -s -c 'split("\n") | map(select(length > 0)) | sort')"
           count="$(echo "$matrix" | jq 'length')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "count=$count" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Websites discovered: $count"
+            echo ""
+            echo "$matrix" | jq -r '.[] | "- \(.)"'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Discovered $count website(s) from $TEMPLATE:"
+          echo "$matrix" | jq -r '.[] | "  \(.)"'
           if [ "$count" -eq 0 ]; then
-            echo "::notice::dependents.json is empty - no downstream builds to run."
+            echo "::notice::No websites found - no downstream builds to run."
           fi
 
   downstream:
@@ -91,6 +129,8 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@metanull'
       - uses: actions/download-artifact@v8
         with:
           name: package-tarball
@@ -109,18 +149,18 @@ jobs:
   # Single stable status for the whole downstream matrix.
   #
   # Branch protection requires job NAMES, and the matrix names its jobs after
-  # the repositories in dependents.json — so requiring them directly meant every
-  # dependents.json edit also had to edit the protection settings of both
-  # package repos. Forget to add the context and the canary is silently no
-  # longer required; forget to remove one and every pull request is blocked by a
-  # check that will never report again.
+  # the websites it discovered — a set that changes whenever a site is created.
+  # Requiring those directly would mean editing the protection settings of both
+  # package repos every time: forget to add a context and the canary is
+  # silently no longer required; forget to remove one and every pull request is
+  # blocked by a check that will never report again.
   #
   # Require `ci / Downstream (all)` instead. It never changes, however many
-  # dependents there are, so adding a website is a one-line pull request.
+  # websites exist, so creating one needs no settings change anywhere.
   #
   # `if: always()` because this has to report even when the matrix fails, and
-  # `skipped` counts as success because `downstream` is skipped when
-  # dependents.json is empty.
+  # `skipped` counts as success because `downstream` is skipped when no
+  # websites were discovered.
   downstream-success:
     name: Downstream (all)
     needs: [downstream]

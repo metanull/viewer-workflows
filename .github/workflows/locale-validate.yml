@@ -18,7 +18,7 @@ jobs:
     outputs:
       locales_only: ${{ steps.changes.outputs.locales_only }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Detect changed files
@@ -36,7 +36,7 @@ jobs:
           else
             echo "locales_only=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - name: Validate locale files

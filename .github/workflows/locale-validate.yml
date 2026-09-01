@@ -1,10 +1,34 @@
 name: Locale validation
 
+# The rules themselves are not here. They live in metanull/viewer-i18n, as one
+# checker used by the dictionary, by every website's own texts, and by the call
+# sites that read them — so a rule cannot be enforced in one place and forgotten
+# in another. This workflow only decides which repository is being checked, and
+# what to do with the result.
+
 on:
   workflow_call:
+    inputs:
+      mode:
+        description: "'site' for a website's locales/, 'dictionary' for the shared texts"
+        type: string
+        required: false
+        default: site
+      texts_path:
+        description: >-
+          Space-separated path prefixes holding texts. A pull request touching
+          only these merges itself once the check is green.
+        type: string
+        required: false
+        default: "locales/"
+      dictionary_ref:
+        description: "Ref of metanull/viewer-i18n providing the rules (site mode only)"
+        type: string
+        required: false
+        default: main
     outputs:
       locales_only:
-        description: "'true' when the PR only touches files under locales/"
+        description: "'true' when the pull request only touches text files"
         value: ${{ jobs.validate.outputs.locales_only }}
 
 permissions:
@@ -13,6 +37,9 @@ permissions:
 
 jobs:
   validate:
+    # The name is part of the branch-protection contract of every website that
+    # requires `locales / Validate locale files`. Renaming it would leave those
+    # repositories requiring a check that never reports again.
     name: Validate locale files
     runs-on: ubuntu-latest
     outputs:
@@ -21,101 +48,58 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
       - name: Detect changed files
         id: changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TEXTS_PATH: ${{ inputs.texts_path }}
         run: |
           merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           changed="$(git diff --name-only "$merge_base" "$HEAD_SHA")"
           echo "Changed files:"
           echo "$changed"
-          if [ -n "$changed" ] && ! echo "$changed" | grep -qv '^locales/'; then
-            echo "locales_only=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "locales_only=false" >> "$GITHUB_OUTPUT"
-          fi
+          only=true
+          [ -z "$changed" ] && only=false
+          for file in $changed; do
+            matched=false
+            for prefix in $TEXTS_PATH; do
+              case "$file" in "$prefix"*) matched=true ;; esac
+            done
+            [ "$matched" = true ] || only=false
+          done
+          echo "locales_only=$only" >> "$GITHUB_OUTPUT"
+
+      # In dictionary mode the caller IS the rulebook, so its own checker runs:
+      # a pull request that changes a rule is validated by the rule it proposes.
+      # A website borrows the published rulebook instead of installing it, which
+      # keeps a translator's pull request free of npm, of registry credentials
+      # and of anything that can fail for a reason they cannot act on.
+      - name: Fetch the rules
+        if: inputs.mode != 'dictionary'
+        uses: actions/checkout@v7
+        with:
+          repository: metanull/viewer-i18n
+          ref: ${{ inputs.dictionary_ref }}
+          path: ${{ runner.temp }}/viewer-i18n
+
       - uses: actions/setup-node@v7
         with:
           node-version: lts/*
-      - name: Validate locale files
+
+      - name: Validate texts
         id: validate
         continue-on-error: true
+        env:
+          MODE: ${{ inputs.mode }}
         run: |
-          cat > "$RUNNER_TEMP/locale-validate.js" <<'EOF'
-          const fs = require('fs');
-          const path = require('path');
-          const dir = 'locales';
-          const problems = [];
+          if [ "$MODE" = "dictionary" ]; then
+            node tools/check.mjs --dictionary .
+          else
+            node "$RUNNER_TEMP/viewer-i18n/tools/check.mjs" --site .
+          fi
 
-          if (!fs.existsSync(dir)) {
-            console.log('No locales/ directory - nothing to validate.');
-            process.exit(0);
-          }
-
-          const flatten = (obj, prefix) => Object.entries(obj).reduce((acc, [k, v]) => {
-            const key = prefix ? prefix + '.' + k : k;
-            if (v !== null && typeof v === 'object') Object.assign(acc, flatten(v, key));
-            else acc[key] = String(v);
-            return acc;
-          }, {});
-
-          const placeholders = (s) => (s.match(/\{[A-Za-z0-9_]+\}/g) || []).sort().join(', ');
-          const htmlRe = /<\/?[A-Za-z][^>]*>/;
-
-          const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
-          const parsed = {};
-          for (const f of files) {
-            const text = fs.readFileSync(path.join(dir, f), 'utf8');
-            try {
-              parsed[f] = flatten(JSON.parse(text), '');
-            } catch (e) {
-              problems.push('The file **locales/' + f + '** is not valid JSON, so it cannot be used. This is usually a missing or extra comma, quote or brace. Technical detail: ' + e.message);
-            }
-          }
-
-          const en = parsed['en.json'];
-          if (!en) {
-            problems.push('The reference file **locales/en.json** is missing or unreadable. Every other language is compared against it.');
-          } else {
-            for (const [k, v] of Object.entries(en)) {
-              if (htmlRe.test(v)) problems.push('In **locales/en.json**, the text for `' + k + '` contains HTML tags (text between < and >). Locale files must contain plain text only.');
-            }
-            for (const f of files) {
-              if (f === 'en.json' || !parsed[f]) continue;
-              const flat = parsed[f];
-              const missing = Object.keys(en).filter((k) => !(k in flat));
-              const extra = Object.keys(flat).filter((k) => !(k in en));
-              if (missing.length) problems.push('The file **locales/' + f + '** is missing these entries that exist in English: `' + missing.join('`, `') + '`. Please add a translation for each of them.');
-              if (extra.length) problems.push('The file **locales/' + f + '** contains entries that do not exist in English: `' + extra.join('`, `') + '`. Please remove them (or check the spelling of the entry name).');
-              for (const [k, v] of Object.entries(flat)) {
-                if (k in en && placeholders(v) !== placeholders(en[k])) {
-                  problems.push('In **locales/' + f + '**, the text for `' + k + '` must keep the same placeholders as the English text. English uses [' + (placeholders(en[k]) || 'none') + '] but this file uses [' + (placeholders(v) || 'none') + ']. Placeholders look like {name} and are replaced automatically - keep them exactly as in English, but you can move them around in the sentence.');
-                }
-                if (htmlRe.test(v)) {
-                  problems.push('In **locales/' + f + '**, the text for `' + k + '` contains HTML tags (text between < and >). Locale files must contain plain text only.');
-                }
-              }
-            }
-          }
-
-          if (problems.length) {
-            const body = [
-              '<!-- locale-validate -->',
-              'Thank you for the translation update! The automatic check found a few things to fix before it can be merged:',
-              '',
-              ...problems.map((p) => '- ' + p),
-              '',
-              'Once you push a fix, the check runs again automatically. No further action is needed after it turns green.',
-            ].join('\n');
-            fs.writeFileSync('locale-problems.md', body);
-            console.error(problems.length + ' problem(s) found - see locale-problems.md');
-            process.exit(1);
-          }
-          console.log('All locale files are valid.');
-          EOF
-          node "$RUNNER_TEMP/locale-validate.js"
       - name: Explain failures on the PR
         if: steps.validate.outcome == 'failure'
         env:
@@ -124,12 +108,14 @@ jobs:
         run: |
           gh pr comment "$PR_NUMBER" --edit-last --create-if-none --body-file locale-problems.md \
             || gh pr comment "$PR_NUMBER" --body-file locale-problems.md
-      - name: Enable auto-merge for locale-only PRs
+
+      - name: Enable auto-merge for text-only PRs
         if: steps.validate.outcome == 'success' && steps.changes.outputs.locales_only == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: gh pr merge --auto --squash "$PR_NUMBER"
+
       - name: Fail the job when validation failed
         if: steps.validate.outcome == 'failure'
         run: exit 1

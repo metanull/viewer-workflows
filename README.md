@@ -1,12 +1,12 @@
 # viewer-workflows
 
-Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them by an exact version — `metanull/viewer-workflows/.github/workflows/<file>@v1.4.0`. Tags here are immutable; see [Versioning](#versioning). Platform maintenance procedure: [MAINTENANCE.md](MAINTENANCE.md).
+Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them by an exact version — `metanull/viewer-workflows/.github/workflows/<file>@v1.5.0`. Tags here are immutable; see [Versioning](#versioning). Platform maintenance procedure: [MAINTENANCE.md](MAINTENANCE.md).
 
 | Workflow | For | Purpose | Inputs | Repo prerequisites |
 |---|---|---|---|---|
-| `website-ci.yml` | website repos | PR checks: build + test (blocking), ESLint + npm audit (reported only) | — | npm scripts `build`, `test`, `lint` |
+| `website-ci.yml` | website repos | PR checks: build + test + texts (blocking), ESLint + npm audit (reported only) | — | npm scripts `build`, `test`, `lint`; `@metanull/viewer-i18n` installed |
 | `website-deploy-pages.yml` | website repos | Build with `BASE_PATH` and deploy `dist/` to GitHub Pages | `base_path` (optional, default `/<repo-name>/`) | Pages source set to "GitHub Actions" |
-| `locale-validate.yml` | website repos | Validate `locales/*.json` against `en.json` (JSON validity, key parity, placeholder integrity, no HTML); auto-merge locale-only PRs when green; plain-language PR comment on failure | — (output: `locales_only`) | "Allow auto-merge" enabled |
+| `locale-validate.yml` | website repos, `viewer-i18n` | Validate the repository's texts with the rules published by [`metanull/viewer-i18n`](https://github.com/metanull/viewer-i18n); auto-merge text-only PRs when green; plain-language PR comment on failure | `mode` (`site` \| `dictionary`, default `site`), `texts_path` (default `locales/`), `dictionary_ref` (default `main`) — output: `locales_only` | "Allow auto-merge" enabled |
 | `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of the reusable workflows and dev-dependency patches; majors wait for a human. The `@metanull` npm scope is not covered — Dependabot cannot read it; see [MAINTENANCE.md](MAINTENANCE.md) | — | "Allow auto-merge" enabled |
 | `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | — |
 | `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over every website, using the PR's tarball | — | — (websites are discovered from the `website-template` link) |
@@ -44,9 +44,9 @@ permissions:
   packages: read
 jobs:
   ci:
-    uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.4.0
+    uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.5.0
   locales:
-    uses: metanull/viewer-workflows/.github/workflows/locale-validate.yml@v1.4.0
+    uses: metanull/viewer-workflows/.github/workflows/locale-validate.yml@v1.5.0
 ```
 
 ### `.github/workflows/deploy.yml` (website repos)
@@ -63,7 +63,7 @@ permissions:
   id-token: write
 jobs:
   deploy:
-    uses: metanull/viewer-workflows/.github/workflows/website-deploy-pages.yml@v1.4.0
+    uses: metanull/viewer-workflows/.github/workflows/website-deploy-pages.yml@v1.5.0
 ```
 
 ### `.github/workflows/automerge.yml` (all repos)
@@ -77,7 +77,7 @@ permissions:
   pull-requests: write
 jobs:
   automerge:
-    uses: metanull/viewer-workflows/.github/workflows/dependabot-automerge.yml@v1.4.0
+    uses: metanull/viewer-workflows/.github/workflows/dependabot-automerge.yml@v1.5.0
 ```
 
 ### `.github/workflows/audit.yml` (all repos)
@@ -94,7 +94,7 @@ permissions:
   packages: read
 jobs:
   audit:
-    uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@v1.4.0
+    uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@v1.5.0
 ```
 
 ### `.github/workflows/ci.yml` (package repos)
@@ -110,7 +110,7 @@ permissions:
   packages: read
 jobs:
   ci:
-    uses: metanull/viewer-workflows/.github/workflows/package-ci.yml@v1.4.0
+    uses: metanull/viewer-workflows/.github/workflows/package-ci.yml@v1.5.0
 ```
 
 ### `.github/workflows/release.yml` (package repos)
@@ -125,7 +125,7 @@ permissions:
   packages: write
 jobs:
   release:
-    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.4.0
+    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.5.0
 ```
 
 ## Versioning
@@ -134,7 +134,7 @@ jobs:
 
 - Release `vX.Y.Z` and stop. There is no moving major tag to update.
 - Consumers pin the exact version:
-  `uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.4.0`
+  `uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.5.0`
 - Every consumer declares the `github-actions` Dependabot ecosystem, so a new
   release arrives there as a pull request. Dependabot covers
   [reusable-workflow refs](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot),

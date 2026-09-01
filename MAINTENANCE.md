@@ -45,8 +45,8 @@ Dependabot still runs, and matters: it keeps **third-party** dependencies and
 
 ## The flow
 
-Identical for `viewer-core`, `viewer-layout` and every `<dataset>-data`
-package. There is no second procedure.
+Identical for `viewer-core`, `viewer-layout`, `viewer-i18n` and every
+`<dataset>-data` package. There is no second procedure.
 
 | | Step | Gate |
 |---|---|---|

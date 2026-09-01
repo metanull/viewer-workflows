@@ -76,13 +76,19 @@ jobs:
       # A website borrows the published rulebook instead of installing it, which
       # keeps a translator's pull request free of npm, of registry credentials
       # and of anything that can fail for a reason they cannot act on.
+      #
+      # The path is relative on purpose: actions/checkout refuses any path that
+      # is not under the workspace, so `$RUNNER_TEMP/...` fails outright with
+      # "Repository path ... is not under ...". A relative path lands inside the
+      # workspace, which is a fresh clone that nothing reads back — the checker
+      # walks `locales/` and `src/`, never the working tree at large.
       - name: Fetch the rules
         if: inputs.mode != 'dictionary'
         uses: actions/checkout@v7
         with:
           repository: metanull/viewer-i18n
           ref: ${{ inputs.dictionary_ref }}
-          path: ${{ runner.temp }}/viewer-i18n
+          path: .viewer-i18n-rules
 
       - uses: actions/setup-node@v7
         with:
@@ -97,7 +103,7 @@ jobs:
           if [ "$MODE" = "dictionary" ]; then
             node tools/check.mjs --dictionary .
           else
-            node "$RUNNER_TEMP/viewer-i18n/tools/check.mjs" --site .
+            node .viewer-i18n-rules/tools/check.mjs --site .
           fi
 
       - name: Explain failures on the PR

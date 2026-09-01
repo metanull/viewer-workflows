@@ -94,6 +94,21 @@ jobs:
         with:
           node-version: lts/*
 
+      # The checker reads Markdown with the same library the websites render it
+      # with, rather than approximating the grammar with a regular expression,
+      # so it needs that library present. This is the one install in a
+      # translator's pull request and it is deliberately the smallest possible
+      # one: `marked` has no dependencies of its own, it comes from the public
+      # registry, and nothing here needs a credential.
+      #
+      # `|| true` because a checkout of a viewer-i18n that predates the
+      # dependency has nothing to install, and this workflow has to keep
+      # working against both.
+      - name: Install the rules' dependencies
+        if: inputs.mode != 'dictionary'
+        working-directory: .viewer-i18n-rules
+        run: npm ci --omit=dev || true
+
       - name: Validate texts
         id: validate
         continue-on-error: true

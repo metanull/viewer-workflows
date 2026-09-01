@@ -101,12 +101,17 @@ jobs:
       # one: `marked` has no dependencies of its own, it comes from the public
       # registry, and nothing here needs a credential.
       #
-      # `|| true` because a checkout of a viewer-i18n that predates the
-      # dependency has nothing to install, and this workflow has to keep
-      # working against both.
+      # Both modes, because both run the checker from a plain checkout: site
+      # mode from `.viewer-i18n-rules`, dictionary mode from the caller itself.
+      # Guarding this on the mode is what failed first — the dictionary's own
+      # texts job could no longer start.
+      #
+      # `|| true` because a checkout that predates the dependency has nothing
+      # to install, and this workflow has to keep working against both. That is
+      # what lets it be released, and pinned everywhere, before the checker
+      # changes.
       - name: Install the rules' dependencies
-        if: inputs.mode != 'dictionary'
-        working-directory: .viewer-i18n-rules
+        working-directory: ${{ inputs.mode == 'dictionary' && '.' || '.viewer-i18n-rules' }}
         run: npm ci --omit=dev || true
 
       - name: Validate texts

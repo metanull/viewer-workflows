@@ -47,6 +47,28 @@ jobs:
       - name: Test
         run: npm run test
 
+  # locale-validate.yml checks the texts a website writes; this checks the ones
+  # it reads. It needs the installed dependencies, because the entries a call
+  # site may use are the shared bundle plus the website's own file, and only an
+  # install knows which bundle this website receives.
+  texts:
+    name: Texts (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@metanull'
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+      - name: Check that every text a page asks for exists
+        run: npx viewer-i18n-check --app .
+
   lint:
     name: Lint (reported, non-blocking)
     runs-on: ubuntu-latest

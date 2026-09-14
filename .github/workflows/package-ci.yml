@@ -32,6 +32,13 @@ jobs:
   pack:
     name: Pack tarball
     runs-on: ubuntu-latest
+    outputs:
+      # The name this PR packs the tarball under, and — only when this PR
+      # itself changes package.json's "name" relative to its base branch —
+      # the name it is renamed FROM. `downstream` uses both: see the "Also
+      # alias-install" step for why a rename needs special handling here.
+      name: ${{ steps.rename.outputs.name }}
+      legacy_name: ${{ steps.rename.outputs.legacy_name }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -53,6 +60,39 @@ jobs:
           name: package-tarball
           path: "*.tgz"
           retention-days: 1
+      # A package's npm name can change in a PR (a scope rename, e.g.
+      # @metanull/foo -> @museumwnf/foo). When it does, every website still
+      # imports the OLD name, and `npm install --no-save <tarball>` in
+      # `downstream` below installs a tarball under whatever name its own
+      # package.json declares — the NEW one. That lands in
+      # node_modules/@new-scope/foo, which nothing imports; the site's
+      # existing `@old-scope/foo` import keeps resolving to whatever version
+      # npm ci pulled from the registry. The downstream build then reports
+      # green having never touched this PR's code — a passing check that
+      # validated nothing, worse than a failing one because nothing says so.
+      # Detecting the rename here (by diffing package.json's "name" against
+      # the PR's base branch) lets `downstream` alias-install the same
+      # tarball under the old name too, so existing site imports actually
+      # exercise this PR's code during the transition.
+      - name: Detect a package rename against the PR base branch
+        id: rename
+        run: |
+          set -euo pipefail
+          new_name="$(node -p "require('./package.json').name")"
+          echo "name=$new_name" >> "$GITHUB_OUTPUT"
+          legacy_name=""
+          if [ -n "${{ github.base_ref }}" ] && git fetch --depth=1 origin "${{ github.base_ref }}"; then
+            if git show FETCH_HEAD:package.json > /tmp/base-package.json 2>/dev/null; then
+              old_name="$(node -p "require('/tmp/base-package.json').name" 2>/dev/null || true)"
+              if [ -n "$old_name" ] && [ "$old_name" != "$new_name" ]; then
+                legacy_name="$old_name"
+              fi
+            fi
+          fi
+          echo "legacy_name=$legacy_name" >> "$GITHUB_OUTPUT"
+          if [ -n "$legacy_name" ]; then
+            echo "::notice::Package renamed $legacy_name -> $new_name in this PR. The downstream matrix will alias-install this PR's tarball as $legacy_name too, so sites still importing the old name build against this PR's real code instead of silently reusing the last published version."
+          fi
 
   dependents:
     name: Discover websites
@@ -141,6 +181,19 @@ jobs:
         run: |
           npm ci
           npm install --no-save "$RUNNER_TEMP"/tarball/*.tgz
+      # See the "Detect a package rename" step in `pack`: when this PR
+      # renames the package, this site's own source still imports it under
+      # the pre-rename name, which the install above does not touch (it only
+      # ever populates node_modules/<new-scope>/<name>). Installing the same
+      # tarball again, aliased to the old name, makes the site's existing
+      # import resolve to this PR's real code instead of the version `npm ci`
+      # pulled from the registry moments ago.
+      - name: Also alias-install the tarball under its pre-rename name
+        if: needs.pack.outputs.legacy_name != ''
+        run: |
+          set -euo pipefail
+          tarball="$(ls "$RUNNER_TEMP"/tarball/*.tgz | head -n1)"
+          npm install --no-save "${{ needs.pack.outputs.legacy_name }}@file:$tarball"
       - name: Build dependent
         run: npm run build
       - name: Test dependent

@@ -10,7 +10,11 @@ CI authenticates to GitHub Packages through `actions/setup-node`
 (`registry-url` + `scope`) with `NODE_AUTH_TOKEN: ${{ github.token }}`.
 Developers authenticate from their own `~/.npmrc`. The propagation tool uses
 the operator's own `gh` login. No PAT is stored in any repository, secret or
-`.env`, and nothing in the platform needs one.
+`.env`, and nothing in the platform needs one. Publishing to npmjs (an
+opt-in `package-release.yml` input, see the README) holds to the same rule
+by a different mechanism: [trusted publishing](https://docs.npmjs.com/trusted-publishers/)
+exchanges a GitHub Actions OIDC token for a short-lived npm credential, so
+no npm token is stored there either.
 
 A committed `.npmrc` maps the scope to the registry and stops there:
 
@@ -51,7 +55,7 @@ Identical for `viewer-core`, `viewer-layout`, `viewer-i18n` and every
 | | Step | Gate |
 |---|---|---|
 | 1 | Open a PR on the package repository | Its CI builds **every** website against the packed tarball. This is the only cross-site check that exists — nothing downstream repeats it. |
-| 2 | Merge, tag `vX.Y.Z`, publish the GitHub Release | `package-release.yml` publishes to GitHub Packages. Publishing the *Release* is the trigger; merging is not. |
+| 2 | Merge, tag `vX.Y.Z`, publish the GitHub Release | `package-release.yml` publishes to GitHub Packages (or, if the caller opts in with `registry: npmjs`, to npmjs instead — see the README's [Publishing to npmjs](README.md#publishing-to-npmjs)). Publishing the *Release* is the trigger; merging is not. |
 | 3 | **Propagate** | The one human decision: *when*. |
 | 4 | One PR per website, each running that site's own CI | Green merges itself. Red stops and waits for a person. |
 | 5 | Merge deploys the site | |

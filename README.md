@@ -10,7 +10,7 @@ Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them 
 | `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of the reusable workflows and dev-dependency patches; majors wait for a human. The `@metanull` npm scope is not covered — Dependabot cannot read it; see [MAINTENANCE.md](MAINTENANCE.md) | — | "Allow auto-merge" enabled |
 | `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | — |
 | `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over every website, using the PR's tarball | — | — (websites are discovered from the `website-template` link) |
-| `package-release.yml` | package repos | `npm publish` to GitHub Packages, version taken from the release tag | — | `publishConfig.registry` set to `https://npm.pkg.github.com` |
+| `package-release.yml` | package repos | `npm publish`, version taken from the release tag | `registry` (`github` \| `npmjs`, default `github`) | `github`: `publishConfig.registry` set to `https://npm.pkg.github.com`. `npmjs`: repository secret `NPM_TOKEN` (npm granular access token, publish permission, scoped to the package's org) |
 
 ## Private package access
 
@@ -29,6 +29,31 @@ authenticate with the run's own `github.token`:
   --registry=https://npm.pkg.github.com` or a personal `~/.npmrc` with
   `//npm.pkg.github.com/:_authToken=<their own PAT>`. Tokens never go in the
   repo or in repository secrets.
+
+## Publishing to npmjs
+
+`package-release.yml` accepts an optional `registry` input, `github` (default)
+or `npmjs`. Omitting it — every caller pinned today does — is unchanged
+behaviour: the job publishes to `npm.pkg.github.com` with `github.token`,
+exactly as before this input existed.
+
+Passing `registry: npmjs` instead publishes to `registry.npmjs.org` with
+`npm publish --access public --provenance`, authenticated with the calling
+repository's own `NPM_TOKEN` secret (not `github.token` — npmjs has no
+ambient token equivalent). The job fails fast with a clear error if
+`NPM_TOKEN` is unset. Because reusable workflows do not inherit secrets
+implicitly, the caller must either pass `secrets: inherit` or forward
+`NPM_TOKEN` explicitly (see the snippet below).
+
+Provenance (`--provenance`) needs `id-token: write`, which this workflow
+already requests; it works unmodified for a public repository, which every
+package repo here is.
+
+`NPM_TOKEN` is a per-repository secret for now (create a granular npm access
+token, scoped to the target org and package, with publish permission, and add
+it as a repository secret) — the repos are not yet under a shared GitHub
+organisation, so an org-level secret isn't available. It should move to one
+org secret once the repos transfer.
 
 ## Caller snippets
 
@@ -126,6 +151,27 @@ permissions:
 jobs:
   release:
     uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.5.0
+```
+
+To additionally (or instead) publish to npmjs, pass `registry: npmjs` and
+forward `NPM_TOKEN`:
+
+```yaml
+name: Release
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+jobs:
+  release:
+    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.5.0
+    with:
+      registry: npmjs
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 ```
 
 ## Versioning

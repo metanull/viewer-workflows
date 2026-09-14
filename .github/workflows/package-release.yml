@@ -2,17 +2,39 @@ name: Package release
 
 on:
   workflow_call:
+    inputs:
+      registry:
+        description: >-
+          Which registry to publish to: "github" (default) publishes to
+          npm.pkg.github.com using the run's own github.token, unchanged from
+          before this input existed. "npmjs" publishes to registry.npmjs.org
+          using the repository's NPM_TOKEN secret, with public provenance.
+        type: string
+        required: false
+        default: github
+    secrets:
+      NPM_TOKEN:
+        description: >-
+          npm granular access token with publish permission on the
+          @museumwnf scope. Required only when registry is "npmjs"; unused
+          and safe to omit otherwise.
+        required: false
 
 # github.token installs private @metanull packages, provided the package has
 # granted this repository access ("Manage Actions access" in the package
-# settings). No PAT or repository secret is involved.
+# settings). No PAT or repository secret is involved for GitHub Packages.
+# Publishing to npmjs (registry: npmjs) instead uses the repository's own
+# NPM_TOKEN secret; id-token: write is only exercised by that path, to sign
+# npm provenance attestations.
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
-  publish:
+  publish-github:
     name: Publish to GitHub Packages
+    if: inputs.registry == 'github'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -35,3 +57,37 @@ jobs:
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
+
+  publish-npmjs:
+    name: Publish to npmjs
+    if: inputs.registry == 'npmjs'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require NPM_TOKEN
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::registry is 'npmjs' but the NPM_TOKEN secret is not set on this repository. Add a granular npm access token with publish permission on the @museumwnf scope as the repository secret NPM_TOKEN, then re-run this release." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Align package version with the tag
+        env:
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: npm version --no-git-tag-version --allow-same-version "${TAG#v}"
+      - name: Build
+        run: npm run build --if-present
+      - name: Publish
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

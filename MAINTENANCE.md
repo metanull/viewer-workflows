@@ -68,11 +68,21 @@ lands.
 ### Step 3, with the tool
 
 ```bash
+export GH_TOKEN=$(gh auth token)
 docker run --rm -it \
-  -v "$PWD:/w" -v "$HOME/.npmrc:/root/.npmrc:ro" -v "$HOME/.config/gh:/root/.config/gh:ro" \
-  -w /w node:lts-alpine sh -c "apk add --no-cache github-cli >/dev/null && \
+  -e GH_TOKEN \
+  -v "$PWD:/w" -v "$HOME/.npmrc:/root/.npmrc:ro" \
+  -w /w node:lts-alpine sh -c "apk add --no-cache git github-cli >/dev/null && \
     node tools/propagate.mjs --expect viewer-core@1.0.0 --expect viewer-layout@1.0.0"
 ```
+
+`GH_TOKEN` must be passed explicitly. `gh auth login` on the host commonly
+stores the token in the OS keyring (e.g. Windows Credential Manager), which a
+container cannot reach — mounting `~/.config/gh` alone carries no usable
+token then. `gh auth token` reads the real token regardless of where `gh`
+stores it. The tool itself runs `gh auth setup-git` on every invocation, so
+once `gh` is authenticated (via `GH_TOKEN` or otherwise), `git push` inherits
+the same credentials.
 
 Add `--dry-run` first if you want to see what it would do. `--repo owner/name`
 restricts it to one site; `--no-merge` opens the pull requests without enabling

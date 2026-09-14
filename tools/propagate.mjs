@@ -33,7 +33,14 @@
  *
  * Requires: `gh` authenticated as the operator, and a personal
  * ~/.npmrc carrying a GitHub Packages token. Never reads a token from the
- * environment and never prints one.
+ * environment and never prints one — but `gh` itself may: on the operator's
+ * own machine `gh auth login` normally stores the token in the OS keyring,
+ * which a container cannot reach. Run in Docker with `-e GH_TOKEN=$(gh auth
+ * token)`; mounting `~/.config/gh` alone carries no usable token when the
+ * host's `gh` uses keyring storage. This tool runs `gh auth setup-git` itself
+ * on every invocation (cheap, idempotent) so `git push` authenticates the
+ * same way `gh` does, and it fails fast with a clear message if `gh` itself
+ * is not authenticated, rather than surfacing a cryptic mid-run push error.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -81,6 +88,39 @@ function gh(args, opts = {}) {
 }
 
 // ── Preconditions ──────────────────────────────────────────────────────────
+
+/**
+ * Fail fast, with an actionable message, if `gh` cannot authenticate — and
+ * make sure `git push` will use that same authentication.
+ *
+ * Without this, the first symptom of a missing/unreachable token used to
+ * surface deep in the first site's `git push` as a bare credential-helper
+ * error ("could not read Username"), after discovery and the registry check
+ * had already run. `gh auth setup-git` installs `gh` as git's credential
+ * helper for its hosts (idempotent — safe to run on every invocation, on the
+ * operator's own machine or in a fresh container alike), so a plain `git
+ * push` in propagateTo() authenticates the same way `gh pr create` does.
+ */
+function ensureGhAuth() {
+  try {
+    gh(['auth', 'status'])
+  } catch (error) {
+    throw new Error(
+      'gh is not authenticated (`gh auth status` failed).\n' +
+      '  · On the operator\'s own machine: run `gh auth login`.\n' +
+      '  · In a container: `gh auth login` on the host commonly stores the token in\n' +
+      '    the OS keyring (e.g. Windows Credential Manager), which the container\n' +
+      '    cannot reach — mounting ~/.config/gh alone carries no usable token then.\n' +
+      '    Pass the token instead: docker run -e GH_TOKEN=$(gh auth token) ...\n' +
+      String(error.stderr || error.message)
+    )
+  }
+  try {
+    gh(['auth', 'setup-git'])
+  } catch (error) {
+    throw new Error(`gh auth setup-git failed: ${String(error.stderr || error.message)}`)
+  }
+}
 
 /**
  * Refuse to start unless the registry already serves every expected version.
@@ -223,6 +263,10 @@ function propagateTo(repo, { dryRun, merge }) {
 // ── Main ───────────────────────────────────────────────────────────────────
 
 const { expect, repos, dryRun, merge } = parseArgs(process.argv.slice(2))
+
+console.log('Checking gh authentication')
+ensureGhAuth()
+
 const owner = gh(['api', 'user', '--jq', '.login'])
 
 console.log('Verifying the registry serves the expected versions')

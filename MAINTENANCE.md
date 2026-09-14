@@ -10,7 +10,11 @@ CI authenticates to GitHub Packages through `actions/setup-node`
 (`registry-url` + `scope`) with `NODE_AUTH_TOKEN: ${{ github.token }}`.
 Developers authenticate from their own `~/.npmrc`. The propagation tool uses
 the operator's own `gh` login. No PAT is stored in any repository, secret or
-`.env`, and nothing in the platform needs one.
+`.env`, and nothing in the platform needs one. Publishing to npmjs (an
+opt-in `package-release.yml` input, see the README) holds to the same rule
+by a different mechanism: [trusted publishing](https://docs.npmjs.com/trusted-publishers/)
+exchanges a GitHub Actions OIDC token for a short-lived npm credential, so
+no npm token is stored there either.
 
 A committed `.npmrc` maps the scope to the registry and stops there:
 

@@ -8,24 +8,41 @@ on:
           Which registry to publish to: "github" (default) publishes to
           npm.pkg.github.com using the run's own github.token, unchanged from
           before this input existed. "npmjs" publishes to registry.npmjs.org
-          using the repository's NPM_TOKEN secret, with public provenance.
+          via npm trusted publishing (OIDC) — no secret involved.
         type: string
         required: false
         default: github
-    secrets:
-      NPM_TOKEN:
+      publish_mode:
         description: >-
-          npm granular access token with publish permission on the
-          @museumwnf scope. Required only when registry is "npmjs"; unused
-          and safe to omit otherwise.
+          Only meaningful when registry is "npmjs". Must match the "Allowed
+          actions" chosen for this workflow's trusted publisher on
+          npmjs.com: "direct" (default) runs `npm publish`; "staged" runs
+          `npm stage publish`, which lands the version in npm's staging area
+          for a maintainer to promote with `npm stage approve` (2FA
+          required) — see https://docs.npmjs.com/staged-publishing/.
+        type: string
         required: false
+        default: direct
 
 # github.token installs private @metanull packages, provided the package has
 # granted this repository access ("Manage Actions access" in the package
 # settings). No PAT or repository secret is involved for GitHub Packages.
-# Publishing to npmjs (registry: npmjs) instead uses the repository's own
-# NPM_TOKEN secret; id-token: write is only exercised by that path, to sign
-# npm provenance attestations.
+#
+# Publishing to npmjs (registry: npmjs) uses npm trusted publishing (OIDC),
+# not a stored secret: id-token: write lets the job exchange a GitHub
+# Actions OIDC token for a short-lived npm publish credential, provided a
+# trusted publisher has been configured on npmjs.com for this exact
+# repository and the CALLING workflow's filename (npm authorizes the
+# workflow that requested the OIDC token — the caller's release.yml, not
+# this reusable file; see README's "Publishing to npmjs"). The caller's own
+# workflow must also grant id-token: write, since a reusable workflow's
+# permissions are capped by what the caller grants.
+#
+# No npm token is read anywhere in this workflow. A repository-scoped
+# NPM_TOKEN cannot substitute for OIDC here: the only kind of npm access
+# token grantable without a maintainer's own 2FA at publish time is
+# "stage-only", which can stage a version but never publish it directly
+# (https://docs.npmjs.com/about-access-tokens/).
 permissions:
   contents: read
   packages: write
@@ -59,35 +76,34 @@ jobs:
           NODE_AUTH_TOKEN: ${{ github.token }}
 
   publish-npmjs:
-    name: Publish to npmjs
+    name: Publish to npmjs (trusted publishing)
     if: inputs.registry == 'npmjs'
     runs-on: ubuntu-latest
     steps:
-      - name: Require NPM_TOKEN
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::error::registry is 'npmjs' but the NPM_TOKEN secret is not set on this repository. Add a granular npm access token with publish permission on the @museumwnf scope as the repository secret NPM_TOKEN, then re-run this release." >&2
-            exit 1
-          fi
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
           registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm CLI >=11.5.1 (and Node >=22.14.0, which
+      # lts/* already satisfies). Pin the CLI explicitly rather than trust
+      # whatever version the resolved Node LTS happens to bundle, since that
+      # bundled version drifts as lts/* moves to newer releases over the
+      # life of this workflow.
+      - name: Ensure npm supports OIDC trusted publishing (needs npm >=11.5.1)
+        run: npm install -g npm@latest
       - name: Install dependencies
         run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Align package version with the tag
         env:
           TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: npm version --no-git-tag-version --allow-same-version "${TAG#v}"
       - name: Build
         run: npm run build --if-present
-      - name: Publish
+      - name: Publish (direct)
+        if: inputs.publish_mode == 'direct'
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish (staged, awaits a maintainer's 2FA promotion)
+        if: inputs.publish_mode == 'staged'
+        run: npm stage publish --access public --provenance

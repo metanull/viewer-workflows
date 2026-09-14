@@ -10,7 +10,7 @@ Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them 
 | `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of the reusable workflows and dev-dependency patches; majors wait for a human. The `@metanull` npm scope is not covered — Dependabot cannot read it; see [MAINTENANCE.md](MAINTENANCE.md) | — | "Allow auto-merge" enabled |
 | `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | — |
 | `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over every website, using the PR's tarball | — | — (websites are discovered from the `website-template` link) |
-| `package-release.yml` | package repos | `npm publish`, version taken from the release tag | `registry` (`github` \| `npmjs`, default `github`) | `github`: `publishConfig.registry` set to `https://npm.pkg.github.com`. `npmjs`: repository secret `NPM_TOKEN` (npm granular access token, publish permission, scoped to the package's org) |
+| `package-release.yml` | package repos | `npm publish`, version taken from the release tag | `registry` (`github` \| `npmjs`, default `github`), `publish_mode` (`direct` \| `staged`, default `direct`, npmjs only) | `github`: `publishConfig.registry` set to `https://npm.pkg.github.com`. `npmjs`: a trusted publisher configured on npmjs.com for this repo + the *calling* workflow's filename (no secret) — see [Publishing to npmjs](#publishing-to-npmjs) |
 
 ## Private package access
 
@@ -37,23 +37,53 @@ or `npmjs`. Omitting it — every caller pinned today does — is unchanged
 behaviour: the job publishes to `npm.pkg.github.com` with `github.token`,
 exactly as before this input existed.
 
-Passing `registry: npmjs` instead publishes to `registry.npmjs.org` with
-`npm publish --access public --provenance`, authenticated with the calling
-repository's own `NPM_TOKEN` secret (not `github.token` — npmjs has no
-ambient token equivalent). The job fails fast with a clear error if
-`NPM_TOKEN` is unset. Because reusable workflows do not inherit secrets
-implicitly, the caller must either pass `secrets: inherit` or forward
-`NPM_TOKEN` explicitly (see the snippet below).
+Passing `registry: npmjs` instead publishes to `registry.npmjs.org` using
+[npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) — OIDC,
+not a stored secret. **No `NPM_TOKEN` or any other npm token is read by this
+workflow.** That's deliberate, not a stopgap: the only npm access token a
+repository secret can safely hold without a human's own 2FA at publish time
+is a ["stage-only"](https://docs.npmjs.com/about-access-tokens/) one, and a
+stage-only token cannot run `npm publish` — it can only stage a version for
+a maintainer to promote by hand. Trusted publishing is the CI-native
+replacement: a short-lived, workflow-scoped credential minted per run, with
+provenance attached automatically.
 
-Provenance (`--provenance`) needs `id-token: write`, which this workflow
-already requests; it works unmodified for a public repository, which every
-package repo here is.
+### One-time setup per package repo (on npmjs.com)
 
-`NPM_TOKEN` is a per-repository secret for now (create a granular npm access
-token, scoped to the target org and package, with publish permission, and add
-it as a repository secret) — the repos are not yet under a shared GitHub
-organisation, so an org-level secret isn't available. It should move to one
-org secret once the repos transfer.
+1. **The package must already exist on the registry.** Trusted publishing
+   cannot create a brand-new package — publish the first version by hand
+   from a machine where a maintainer is logged in with 2FA
+   (`npm publish --access public`), *then* continue below. (This applies to
+   every `@museumwnf/*` package the first time it publishes under that
+   scope — see `metanull/inventory-app#1721`.)
+2. On the package's Settings → Trusted Publisher, add a GitHub Actions
+   publisher:
+   - **Organization or user**: the repo owner (`metanull` until the M2 org
+     move to `museumwithnofrontiers`; re-point every trusted publisher the
+     day that move happens, since the binding is to the exact owner name).
+   - **Repository**: the package repo (e.g. `viewer-core`).
+   - **Workflow filename**: the filename of the **calling** workflow in
+     that repo — `release.yml` in the snippet below — **not**
+     `package-release.yml`. npm authorizes whichever workflow file
+     requested the OIDC token, which is always the caller when a reusable
+     workflow is involved; entering the reusable workflow's filename here
+     is a documented, silent-failure footgun.
+   - **Environment**: leave unset unless the repo uses a GitHub environment
+     for release protection rules.
+   - **Allowed actions**: `npm publish` for the default `publish_mode:
+     direct`, or `npm stage publish` if you want every CI-triggered release
+     to land in staging for a maintainer's `npm stage approve` (2FA)
+     instead — pass `publish_mode: staged` to match.
+3. Both the caller (`release.yml`) and this reusable workflow must grant
+   `id-token: write` — a reusable workflow's permissions are capped by what
+   the caller grants, so the caller declaring it is not optional (see the
+   snippet below).
+
+Provenance (`--provenance` for `direct`, also passed for `staged`) needs
+`id-token: write`, which this workflow already requests, and a public
+repository — true for every package repo here; with trusted publishing, npm
+attaches provenance automatically even without the flag, but passing it
+explicitly costs nothing and documents intent.
 
 ## Caller snippets
 
@@ -153,8 +183,10 @@ jobs:
     uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.5.0
 ```
 
-To additionally (or instead) publish to npmjs, pass `registry: npmjs` and
-forward `NPM_TOKEN`:
+To instead publish to npmjs via trusted publishing, pass `registry: npmjs`
+and grant `id-token: write` — no secret to forward, but the trusted
+publisher on npmjs.com must already be configured for *this exact*
+`release.yml` filename in *this* repo (see the one-time setup above):
 
 ```yaml
 name: Release
@@ -170,8 +202,6 @@ jobs:
     uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.5.0
     with:
       registry: npmjs
-    secrets:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 ```
 
 ## Versioning

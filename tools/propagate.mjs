@@ -14,7 +14,7 @@
  *
  * Usage:
  *   node tools/propagate.mjs --expect viewer-core@1.0.0 [--expect viewer-layout@1.0.0]
- *   node tools/propagate.mjs --expect carpets-data@1.1.0 --repo metanull/carpets
+ *   node tools/propagate.mjs --expect carpets-data@1.1.0 --repo museumwithnofrontiers/carpets
  *   node tools/propagate.mjs --expect viewer-core@1.0.0 --dry-run
  *
  * Options:
@@ -418,7 +418,7 @@ function propagateTo(repo, { dryRun, merge, identityArgs }) {
       body,
       `chore(deps): adopt the published ${SCOPE} packages\n\n` +
       `${versions}\n\n` +
-      'Opened by tools/propagate.mjs in metanull/viewer-workflows. The release\n' +
+      'Opened by tools/propagate.mjs in museumwithnofrontiers/viewer-workflows. The release\n' +
       'was already built against this site by the package repository\'s own CI\n' +
       'before it was published; this pull request re-runs that check here, in\n' +
       'context, before the site adopts it.\n'

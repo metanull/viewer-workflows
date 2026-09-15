@@ -1,12 +1,12 @@
 # viewer-workflows
 
-Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them by an exact version — `metanull/viewer-workflows/.github/workflows/<file>@vX.Y.Z`, replacing `vX.Y.Z` with the [latest release tag](https://github.com/metanull/viewer-workflows/tags). Tags here are immutable; see [Versioning](#versioning). Platform maintenance procedure: [MAINTENANCE.md](MAINTENANCE.md).
+Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them by an exact version — `museumwithnofrontiers/viewer-workflows/.github/workflows/<file>@vX.Y.Z`, replacing `vX.Y.Z` with the [latest release tag](https://github.com/museumwithnofrontiers/viewer-workflows/tags). Tags here are immutable; see [Versioning](#versioning). Platform maintenance procedure: [MAINTENANCE.md](MAINTENANCE.md).
 
 | Workflow | For | Purpose | Inputs | Repo prerequisites |
 |---|---|---|---|---|
 | `website-ci.yml` | website repos | PR checks: build + test + texts (blocking), ESLint + npm audit (reported only) | — | npm scripts `build`, `test`, `lint`; `@museumwnf/viewer-i18n` installed |
 | `website-deploy-pages.yml` | website repos | Build with `BASE_PATH` and deploy `dist/` to GitHub Pages | `base_path` (optional, default `/<repo-name>/`) | Pages source set to "GitHub Actions" |
-| `locale-validate.yml` | website repos, `viewer-i18n` | Validate the repository's texts with the rules published by [`metanull/viewer-i18n`](https://github.com/metanull/viewer-i18n); auto-merge text-only PRs when green; plain-language PR comment on failure | `mode` (`site` \| `dictionary`, default `site`), `texts_path` (default `locales/`), `dictionary_ref` (default `main`) — output: `locales_only` | "Allow auto-merge" enabled |
+| `locale-validate.yml` | website repos, `viewer-i18n` | Validate the repository's texts with the rules published by [`museumwithnofrontiers/viewer-i18n`](https://github.com/museumwithnofrontiers/viewer-i18n); auto-merge text-only PRs when green; plain-language PR comment on failure | `mode` (`site` \| `dictionary`, default `site`), `texts_path` (default `locales/`), `dictionary_ref` (default `main`) — output: `locales_only` | "Allow auto-merge" enabled |
 | `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of the reusable workflows and dev-dependency patches; majors wait for a human. The `@museumwnf` platform packages are not covered — their rollout is propagated by the operator instead; see [MAINTENANCE.md](MAINTENANCE.md) | — | "Allow auto-merge" enabled |
 | `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | — |
 | `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over every website, using the PR's tarball. If the PR renames `package.json`'s `name`, the tarball is additionally alias-installed under the pre-rename name in every downstream build, so sites still importing the old name are actually tested against this PR's code instead of silently passing against the last published version | — | — (websites are discovered from the `website-template` link) |
@@ -45,9 +45,10 @@ provenance attached automatically.
    scope — see `metanull/inventory-app#1721`.)
 2. On the package's Settings → Trusted Publisher, add a GitHub Actions
    publisher:
-   - **Organization or user**: the repo owner (`metanull` until the M2 org
-     move to `museumwithnofrontiers`; re-point every trusted publisher the
-     day that move happens, since the binding is to the exact owner name).
+   - **Organization or user**: the repo owner, `museumwithnofrontiers` (moved
+     from the personal account `metanull` in the M2 org move; every trusted
+     publisher had to be re-pointed at the org when that move happened, since
+     the binding is to the exact owner name).
    - **Repository**: the package repo (e.g. `viewer-core`).
    - **Workflow filename**: the filename of the **calling** workflow in
      that repo — `release.yml` in the snippet below — **not**
@@ -85,9 +86,9 @@ permissions:
   pull-requests: write
 jobs:
   ci:
-    uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@vX.Y.Z
+    uses: museumwithnofrontiers/viewer-workflows/.github/workflows/website-ci.yml@vX.Y.Z
   locales:
-    uses: metanull/viewer-workflows/.github/workflows/locale-validate.yml@vX.Y.Z
+    uses: museumwithnofrontiers/viewer-workflows/.github/workflows/locale-validate.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/deploy.yml` (website repos)
@@ -103,7 +104,7 @@ permissions:
   id-token: write
 jobs:
   deploy:
-    uses: metanull/viewer-workflows/.github/workflows/website-deploy-pages.yml@vX.Y.Z
+    uses: museumwithnofrontiers/viewer-workflows/.github/workflows/website-deploy-pages.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/automerge.yml` (all repos)
@@ -117,7 +118,7 @@ permissions:
   pull-requests: write
 jobs:
   automerge:
-    uses: metanull/viewer-workflows/.github/workflows/dependabot-automerge.yml@vX.Y.Z
+    uses: museumwithnofrontiers/viewer-workflows/.github/workflows/dependabot-automerge.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/audit.yml` (all repos)
@@ -133,7 +134,7 @@ permissions:
   issues: write
 jobs:
   audit:
-    uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@vX.Y.Z
+    uses: museumwithnofrontiers/viewer-workflows/.github/workflows/audit-scheduled.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/ci.yml` (package repos)
@@ -146,7 +147,7 @@ permissions:
   contents: read
 jobs:
   ci:
-    uses: metanull/viewer-workflows/.github/workflows/package-ci.yml@vX.Y.Z
+    uses: museumwithnofrontiers/viewer-workflows/.github/workflows/package-ci.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/release.yml` (package repos)
@@ -165,7 +166,7 @@ permissions:
   id-token: write
 jobs:
   release:
-    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@vX.Y.Z
+    uses: museumwithnofrontiers/viewer-workflows/.github/workflows/package-release.yml@vX.Y.Z
 ```
 
 ## Versioning
@@ -174,7 +175,7 @@ jobs:
 
 - Release `vX.Y.Z` and stop. There is no moving major tag to update.
 - Consumers pin the exact version:
-  `uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@vX.Y.Z`
+  `uses: museumwithnofrontiers/viewer-workflows/.github/workflows/website-ci.yml@vX.Y.Z`
 - Every consumer declares the `github-actions` Dependabot ecosystem, so a new
   release arrives there as a pull request. Dependabot covers
   [reusable-workflow refs](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot),

@@ -1,10 +1,10 @@
 name: Locale validation
 
-# The rules themselves are not here. They live in metanull/viewer-i18n, as one
-# checker used by the dictionary, by every website's own texts, and by the call
-# sites that read them — so a rule cannot be enforced in one place and forgotten
-# in another. This workflow only decides which repository is being checked, and
-# what to do with the result.
+# The rules themselves are not here. They live in museumwithnofrontiers/viewer-i18n,
+# as one checker used by the dictionary, by every website's own texts, and by
+# the call sites that read them — so a rule cannot be enforced in one place and
+# forgotten in another. This workflow only decides which repository is being
+# checked, and what to do with the result.
 
 on:
   workflow_call:
@@ -22,7 +22,7 @@ on:
         required: false
         default: "locales/"
       dictionary_ref:
-        description: "Ref of metanull/viewer-i18n providing the rules (site mode only)"
+        description: "Ref of museumwithnofrontiers/viewer-i18n providing the rules (site mode only)"
         type: string
         required: false
         default: main
@@ -86,7 +86,7 @@ jobs:
         if: inputs.mode != 'dictionary'
         uses: actions/checkout@v7
         with:
-          repository: metanull/viewer-i18n
+          repository: museumwithnofrontiers/viewer-i18n
           ref: ${{ inputs.dictionary_ref }}
           path: .viewer-i18n-rules
 

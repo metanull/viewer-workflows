@@ -2,9 +2,9 @@ name: CI
 
 # This repo ships reusable workflows for other repos to call — it is not
 # itself a website or package repo, which is why none of the *-ci.yml files
-# above run here. But tools/propagate.mjs is real, non-trivial code (it is
-# the one tool the whole estate's release process runs through, and it is
-# about to carry the estate through an org transfer), and until this workflow
+# here run against it. But tools/propagate.mjs is real, non-trivial code:
+# it is the one tool the whole estate's release process runs through, and a
+# defect in it propagates to every website at once. Until this workflow
 # existed nothing ran tools/propagate.test.mjs anywhere but a developer's own
 # machine — a pull request touching it showed zero checks, so a passing test
 # suite was never actually verified before merge.

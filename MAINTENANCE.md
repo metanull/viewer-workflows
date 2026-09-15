@@ -6,25 +6,16 @@ rule that keeps it honest.
 ## Three rules
 
 **1. A credential is never named in a tracked file.**
-CI authenticates to GitHub Packages through `actions/setup-node`
-(`registry-url` + `scope`) with `NODE_AUTH_TOKEN: ${{ github.token }}`.
-Developers authenticate from their own `~/.npmrc`. The propagation tool uses
-the operator's own `gh` login. No PAT is stored in any repository, secret or
-`.env`, and nothing in the platform needs one. Publishing to npmjs (an
-opt-in `package-release.yml` input, see the README) holds to the same rule
-by a different mechanism: [trusted publishing](https://docs.npmjs.com/trusted-publishers/)
-exchanges a GitHub Actions OIDC token for a short-lived npm credential, so
-no npm token is stored there either.
-
-A committed `.npmrc` maps the scope to the registry and stops there:
-
-```
-@metanull:registry=https://npm.pkg.github.com
-```
-
-It must never carry a `_authToken` line — a project `.npmrc` overrides the
-developer's own, so an auth line there *blocks* a correctly logged-in machine,
-and npm prints the token in the resulting error.
+All eleven platform packages (`viewer-core`, `viewer-layout`, `viewer-i18n`,
+every `<dataset>-data` package) publish to the public npmjs registry, and CI
+installs them like any other public dependency — no `registry-url`, no
+`scope`, no `NODE_AUTH_TOKEN`, nothing for `actions/setup-node` to
+authenticate. Publishing itself uses [trusted publishing](https://docs.npmjs.com/trusted-publishers/):
+`package-release.yml` exchanges a GitHub Actions OIDC token for a
+short-lived npm credential, so no npm token is stored anywhere either. The
+propagation tool uses the operator's own `gh` login, and developers who need
+to publish by hand authenticate from their own npmjs.com login (`npm login`)
+— none of that is a repository secret or a tracked file.
 
 **2. Published packages are `1.x` or higher.**
 Under `0.x`, `^0.2.0` admits only `0.2.y`, so a "minor" release falls outside
@@ -33,16 +24,14 @@ additive" is not true. From `1.0.0` the ranges mean what everyone assumes.
 Sites declare `^1.0.0` — never `*`, which is not a constraint at all and leaves
 the manifest carrying no intent.
 
-**3. Dependabot does not manage the `@metanull` scope, and never will.**
-GitHub Packages requires a token for every install — including of a *public*
-package; `viewer-core` and `viewer-layout` are public and still fail — and
-Dependabot has no route to one short of a PAT in every repository. Each site's
-`.github/dependabot.yml` therefore ignores the scope, and those packages are
-propagated by the operator instead.
-
-This is not a workaround for something that will be fixed later. It is the
-consequence of publishing to GitHub Packages, accepted deliberately in exchange
-for keeping the estate on GitHub with no organisation and no second registry.
+**3. Dependabot does not drive the `@museumwnf` platform packages, by choice.**
+Nothing technical stops it — the packages are public on npmjs, so Dependabot
+could read them like any other dependency. They stay out of
+`dependabot-automerge.yml`'s auto-merge condition and out of the automated
+flow deliberately: propagation is the one point in the release flow where a
+human decides *when* a new version reaches sites (see "The flow" below), and
+that decision runs through `tools/propagate.mjs`, not a Dependabot pull
+request.
 
 Dependabot still runs, and matters: it keeps **third-party** dependencies and
 **GitHub Actions** current, both of which resolve fine.
@@ -55,7 +44,7 @@ Identical for `viewer-core`, `viewer-layout`, `viewer-i18n` and every
 | | Step | Gate |
 |---|---|---|
 | 1 | Open a PR on the package repository | Its CI builds **every** website against the packed tarball. This is the only cross-site check that exists — nothing downstream repeats it. |
-| 2 | Merge, tag `vX.Y.Z`, publish the GitHub Release | `package-release.yml` publishes to GitHub Packages (or, if the caller opts in with `registry: npmjs`, to npmjs instead — see the README's [Publishing to npmjs](README.md#publishing-to-npmjs)). Publishing the *Release* is the trigger; merging is not. |
+| 2 | Merge, tag `vX.Y.Z`, publish the GitHub Release | `package-release.yml` publishes to npmjs via trusted publishing — see the README's [Publishing to npmjs](README.md#publishing-to-npmjs). Publishing the *Release* is the trigger; merging is not. |
 | 3 | **Propagate** | The one human decision: *when*. |
 | 4 | One PR per website, each running that site's own CI | Green merges itself. Red stops and waits for a person. |
 | 5 | Merge deploys the site | |
@@ -100,8 +89,8 @@ The tool only removes repetition; the procedure stands without it. Per site:
 ```bash
 gh repo clone metanull/<site> && cd <site>
 git checkout -b chore/propagate-platform-packages
-npm install @metanull/viewer-core@latest @metanull/viewer-layout@latest
-git commit -am "chore(deps): adopt the published @metanull packages"
+npm install @museumwnf/viewer-core@latest @museumwnf/viewer-layout@latest
+git commit -am "chore(deps): adopt the published @museumwnf packages"
 gh pr create --fill && gh pr merge --auto --squash
 ```
 

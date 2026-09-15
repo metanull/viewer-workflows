@@ -3,13 +3,9 @@ name: Scheduled npm audit
 on:
   workflow_call:
 
-# github.token installs private @metanull packages, provided the package has
-# granted this repository access ("Manage Actions access" in the package
-# settings). No PAT or repository secret is involved.
 permissions:
   contents: read
   issues: write
-  packages: read
 
 jobs:
   audit:
@@ -21,12 +17,8 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
-          registry-url: https://npm.pkg.github.com
-          scope: '@metanull'
       - name: Install dependencies
         run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
       - name: Run npm audit
         id: audit
         run: |

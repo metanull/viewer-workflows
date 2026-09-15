@@ -5,38 +5,39 @@ on:
     inputs:
       registry:
         description: >-
-          Which registry to publish to: "github" (default) publishes to
-          npm.pkg.github.com using the run's own github.token, unchanged from
-          before this input existed. "npmjs" publishes to registry.npmjs.org
-          via npm trusted publishing (OIDC) — no secret involved.
+          Vestigial. npmjs is now the only publish path, and this input is no
+          longer read by any job here. It is kept declared — rather than
+          removed — purely for compatibility with callers still passing it:
+          dependabot-automerge.yml auto-merges minor/patch bumps of this
+          repository's pin, so Dependabot could bump a caller's `uses:` line
+          on its own while `registry: npmjs` still sat in its `with:` block,
+          and an input this workflow no longer declared would fail that run
+          outright — not caught until the caller's next release. Remove this
+          input in a later release, once every caller has stopped passing it.
         type: string
         required: false
-        default: github
+        default: npmjs
       publish_mode:
         description: >-
-          Only meaningful when registry is "npmjs". Must match the "Allowed
-          actions" chosen for this workflow's trusted publisher on
-          npmjs.com: "direct" (default) runs `npm publish`; "staged" runs
-          `npm stage publish`, which lands the version in npm's staging area
-          for a maintainer to promote with `npm stage approve` (2FA
-          required) — see https://docs.npmjs.com/staged-publishing/.
+          Must match the "Allowed actions" chosen for this workflow's
+          trusted publisher on npmjs.com: "direct" (default) runs `npm
+          publish`; "staged" runs `npm stage publish`, which lands the
+          version in npm's staging area for a maintainer to promote with
+          `npm stage approve` (2FA required) — see
+          https://docs.npmjs.com/staged-publishing/.
         type: string
         required: false
         default: direct
 
-# github.token installs private @metanull packages, provided the package has
-# granted this repository access ("Manage Actions access" in the package
-# settings). No PAT or repository secret is involved for GitHub Packages.
-#
-# Publishing to npmjs (registry: npmjs) uses npm trusted publishing (OIDC),
-# not a stored secret: id-token: write lets the job exchange a GitHub
-# Actions OIDC token for a short-lived npm publish credential, provided a
-# trusted publisher has been configured on npmjs.com for this exact
-# repository and the CALLING workflow's filename (npm authorizes the
-# workflow that requested the OIDC token — the caller's release.yml, not
-# this reusable file; see README's "Publishing to npmjs"). The caller's own
-# workflow must also grant id-token: write, since a reusable workflow's
-# permissions are capped by what the caller grants.
+# Publishing to npmjs uses npm trusted publishing (OIDC), not a stored
+# secret: id-token: write lets the job exchange a GitHub Actions OIDC token
+# for a short-lived npm publish credential, provided a trusted publisher has
+# been configured on npmjs.com for this exact repository and the CALLING
+# workflow's filename (npm authorizes the workflow that requested the OIDC
+# token — the caller's release.yml, not this reusable file; see README's
+# "Publishing to npmjs"). The caller's own workflow must also grant
+# id-token: write, since a reusable workflow's permissions are capped by
+# what the caller grants.
 #
 # No npm token is read anywhere in this workflow. A repository-scoped
 # NPM_TOKEN cannot substitute for OIDC here: the only kind of npm access
@@ -45,39 +46,11 @@ on:
 # (https://docs.npmjs.com/about-access-tokens/).
 permissions:
   contents: read
-  packages: write
   id-token: write
 
 jobs:
-  publish-github:
-    name: Publish to GitHub Packages
-    if: inputs.registry == 'github'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-          cache: npm
-          registry-url: https://npm.pkg.github.com
-      - name: Install dependencies
-        run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
-      - name: Align package version with the tag
-        env:
-          TAG: ${{ github.event.release.tag_name || github.ref_name }}
-        run: npm version --no-git-tag-version --allow-same-version "${TAG#v}"
-      - name: Build
-        run: npm run build --if-present
-      - name: Publish
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
-
   publish-npmjs:
     name: Publish to npmjs (trusted publishing)
-    if: inputs.registry == 'npmjs'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

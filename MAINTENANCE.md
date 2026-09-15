@@ -79,6 +79,15 @@ else in this container needs one either. Mounting an operator's npm
 credentials into a disposable container that nothing in it authenticates
 with would be exposure for no benefit.
 
+`-v "$PWD:/w"` must be a checkout of viewer-workflows itself — not an empty
+directory — for two reasons: it is where `tools/propagate.mjs` is read from,
+and its `origin` remote is where the tool reads the GitHub owner (user or org)
+to search for sites under. That owner is deliberately never the operator's
+own `gh` login — a collaborator's personal account does not own the sites,
+and after the estate moves from `metanull` to `museumwithnofrontiers` no
+operator's login would either. Pass `--owner <login-or-org>` to override it
+(e.g. running from a checkout whose remote does not point at the estate).
+
 Add `--dry-run` first if you want to see what it would do. `--repo owner/name`
 restricts it to one site; `--no-merge` opens the pull requests without enabling
 auto-merge.
@@ -87,6 +96,11 @@ auto-merge.
 finished and `latest` still resolves to the previous version: the tool would
 bump nothing and exit 0, which looks exactly like success. `--expect` turns
 that silent no-op into a refusal.
+
+Discovering zero sites is also a hard error, for the same reason: it is what
+an operator would see immediately after the org move if they ran the tool
+from a stale checkout or without `--owner`, and it must never be
+indistinguishable from a real, quiet propagation.
 
 ### Step 3, by hand
 
@@ -120,6 +134,16 @@ template's owner* that still carry the link. A site created by fork or
 transferred in from elsewhere is invisible to both. The resolved list and its
 count are printed on every CI run and every propagation, so an unexpected drop
 is visible; pass such a site explicitly with `--repo`.
+
+The "template's owner" itself must be a property of the estate in both places,
+never of whoever is running the check. `package-ci.yml` gets it for free from
+`github.repository_owner` — the repository the workflow is already running
+in. `tools/propagate.mjs` runs on an operator's machine, which has no
+equivalent built in, so it reads it from the `origin` remote of its own
+checkout instead (or `--owner`, explicitly) — see `resolveOwner()` and the
+"Step 3, with the tool" note above. Discovering zero sites is a hard error in
+the tool for exactly this reason: a wrong owner must fail loudly, not report
+an empty propagation as a success.
 
 ## Releasing viewer-workflows itself
 

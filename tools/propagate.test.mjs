@@ -14,12 +14,22 @@
 // instead of the tool silently doing nothing in production.
 
 import { strict as assert } from 'node:assert'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { SCOPE, expandPackageName, gitIdentityArgs, resolveGitIdentity, scopedDeps } from './propagate.mjs'
+import {
+  SCOPE,
+  buildSiteList,
+  expandPackageName,
+  gitIdentityArgs,
+  ownerFromRemoteUrl,
+  resolveGitIdentity,
+  resolveOwner,
+  scopedDeps,
+} from './propagate.mjs'
 
 // Mirrors metanull/islamicart's package.json dependencies block.
 const SITE_PACKAGE_JSON = {
@@ -155,5 +165,94 @@ test('gitIdentityArgs: a derived identity becomes per-invocation -c flags, not g
   assert.deepEqual(
     gitIdentityArgs({ name: 'phavelange', email: '12345+phavelange@users.noreply.github.com' }),
     ['-c', 'user.name=phavelange', '-c', 'user.email=12345+phavelange@users.noreply.github.com']
+  )
+})
+
+// resolveOwner() / ownerFromRemoteUrl() / buildSiteList() — regression tests for the estate's
+// owner being derived from whoever happens to be authenticated (`gh api user`'s login)
+// instead of from the estate itself. That bug had two consequences: (1) it already resolves
+// wrong for any collaborator whose own account does not own the sites, and (2) after the
+// estate moves from the personal account `metanull` to the org `museumwithnofrontiers`, it
+// resolves wrong for *everyone* — and discoverSites() used to report that as "0 website(s)"
+// and exit 0, a silent no-op that looks exactly like a successful propagation. resolveOwner()
+// fixes the source (never the operator's login); buildSiteList() fixes the reporting (zero
+// matches throws instead of returning an empty list).
+
+function withGitRemote(url, fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'propagate-owner-test-'))
+  try {
+    execFileSync('git', ['init', '--quiet'], { cwd: dir })
+    if (url) execFileSync('git', ['remote', 'add', 'origin', url], { cwd: dir })
+    fn(dir)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+test('resolveOwner: --owner wins outright, without touching git at all', () => {
+  assert.equal(
+    resolveOwner('museumwithnofrontiers', '/does/not/exist/not-a-checkout'),
+    'museumwithnofrontiers'
+  )
+})
+
+test('resolveOwner: falls back to the `origin` remote of the given checkout — a property of the estate', () => {
+  withGitRemote('https://github.com/museumwithnofrontiers/viewer-workflows.git', (dir) => {
+    assert.equal(resolveOwner(null, dir), 'museumwithnofrontiers')
+  })
+})
+
+test('resolveOwner: throws a clear, actionable error when there is no usable `origin` remote', () => {
+  withGitRemote(null, (dir) => {
+    assert.throws(() => resolveOwner(null, dir), /Could not determine the GitHub owner/)
+  })
+})
+
+test('resolveOwner: throws when `origin` does not point at github.com', () => {
+  withGitRemote('https://gitlab.com/museumwithnofrontiers/viewer-workflows.git', (dir) => {
+    assert.throws(() => resolveOwner(null, dir), /Could not parse a GitHub owner/)
+  })
+})
+
+test('ownerFromRemoteUrl: HTTPS remote with .git suffix', () => {
+  assert.equal(ownerFromRemoteUrl('https://github.com/metanull/viewer-workflows.git'), 'metanull')
+})
+
+test('ownerFromRemoteUrl: HTTPS remote without .git suffix', () => {
+  assert.equal(ownerFromRemoteUrl('https://github.com/metanull/viewer-workflows'), 'metanull')
+})
+
+test('ownerFromRemoteUrl: SSH remote', () => {
+  assert.equal(ownerFromRemoteUrl('git@github.com:metanull/viewer-workflows.git'), 'metanull')
+})
+
+test('ownerFromRemoteUrl: a non-GitHub remote yields null, not a wrong guess', () => {
+  assert.equal(ownerFromRemoteUrl('https://gitlab.com/metanull/viewer-workflows.git'), null)
+})
+
+test('buildSiteList: keeps only repos whose template link matches owner/website-template, sorted', () => {
+  const names = ['zebra-site', 'not-a-site', 'apple-site']
+  const templates = {
+    'zebra-site': 'museumwithnofrontiers/website-template',
+    'not-a-site': '',
+    'apple-site': 'museumwithnofrontiers/website-template',
+  }
+  const sites = buildSiteList('museumwithnofrontiers', names, (name) => templates[name])
+  assert.deepEqual(sites, ['museumwithnofrontiers/apple-site', 'museumwithnofrontiers/zebra-site'])
+})
+
+test('buildSiteList: zero matches throws instead of returning an empty list — the actual bug', () => {
+  // This is the failure mode from the PR description: discovery finding nothing used to
+  // print "0 website(s)" and exit 0, indistinguishable from a real (if quiet) propagation.
+  assert.throws(
+    () => buildSiteList('metanull', ['some-repo', 'another-repo'], () => ''),
+    /Discovered 0 websites under owner "metanull"/
+  )
+})
+
+test('buildSiteList: the zero-match error names what it searched for and how to fix it', () => {
+  assert.throws(
+    () => buildSiteList('metanull', [], () => ''),
+    /template_repository = "metanull\/website-template".*--owner.*--repo/s
   )
 })

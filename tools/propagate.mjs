@@ -27,6 +27,14 @@
  *   --repo <owner/name>        Restrict to one site. Repeatable. Also the
  *                              escape hatch for a site the discovery below
  *                              cannot see.
+ *   --owner <login-or-org>     The account whose repositories discovery
+ *                              searches for sites created from
+ *                              website-template. Defaults to the `origin`
+ *                              remote of the checkout this script runs from
+ *                              — see resolveOwner() — which must be a
+ *                              property of the estate, never the login of
+ *                              whoever is running the tool. Ignored when
+ *                              every site is named with --repo.
  *   --dry-run                  Resolve and report; touch nothing.
  *   --no-merge                 Open the pull requests but do not enable
  *                              auto-merge.
@@ -57,7 +65,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 export const SCOPE = '@museumwnf'
-const TEMPLATE_REPO = 'website-template'
+export const TEMPLATE_REPO = 'website-template'
 const BRANCH = 'chore/propagate-platform-packages'
 
 // ── Arguments ──────────────────────────────────────────────────────────────
@@ -65,12 +73,14 @@ const BRANCH = 'chore/propagate-platform-packages'
 export function parseArgs(argv) {
   const expect = []
   const repos = []
+  let owner = null
   let dryRun = false
   let merge = true
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--expect') expect.push(argv[++i])
     else if (arg === '--repo') repos.push(argv[++i])
+    else if (arg === '--owner') owner = argv[++i]
     else if (arg === '--dry-run') dryRun = true
     else if (arg === '--no-merge') merge = false
     else throw new Error(`Unknown argument: ${arg}`)
@@ -82,7 +92,7 @@ export function parseArgs(argv) {
       'silently propagating nothing.'
     )
   }
-  return { expect, repos, dryRun, merge }
+  return { expect, repos, owner, dryRun, merge }
 }
 
 // ── Shell helpers ──────────────────────────────────────────────────────────
@@ -232,7 +242,105 @@ function verifyPublished(expect) {
   }
 }
 
+// ── Owner resolution ─────────────────────────────────────────────────────
+
+/**
+ * The GitHub owner (user or org) that discoverSites() searches under, and that a
+ * candidate site's `template_repository` is checked against.
+ *
+ * This must be a property of the estate — the account that currently owns
+ * `website-template` and the sites created from it — never the login of
+ * whoever happens to be running the tool. Before this existed, the owner was
+ * `gh api user`'s login: that already matches nothing for any collaborator
+ * whose own account does not own the sites, and it will match nothing for
+ * *everyone* the day the estate moves from the personal account `metanull` to
+ * the org `museumwithnofrontiers`.
+ *
+ * Precedence:
+ *   1. `--owner`, explicit and authoritative — the escape hatch for a
+ *      checkout without a usable `origin`, or a deliberate one-off run
+ *      against a different estate.
+ *   2. The `origin` remote of the git checkout this script is running from.
+ *      MAINTENANCE.md's documented invocation mounts an existing
+ *      viewer-workflows checkout into the container and runs the script from
+ *      its root (`-v "$PWD:/w" -w /w ... node tools/propagate.mjs`), so that
+ *      checkout's own remote already names the estate's current owner — and
+ *      keeps naming it correctly across the org move, since re-cloning from
+ *      the new location is the thing that actually performs that move for
+ *      the operator, with nothing to update in this tool.
+ */
+export function resolveOwner(explicitOwner, cwd = process.cwd()) {
+  if (explicitOwner) return explicitOwner
+
+  let url
+  try {
+    url = run('git', ['remote', 'get-url', 'origin'], { cwd })
+  } catch (error) {
+    throw new Error(
+      'Could not determine the GitHub owner to search under: `git remote get-url origin`\n' +
+      `failed in ${cwd}.\n` +
+      '  · Pass --owner <login-or-org> explicitly, or\n' +
+      '  · run this from within a checkout of viewer-workflows that has an `origin`\n' +
+      `    remote pointing at GitHub.\n${String(error.stderr || error.message)}`
+    )
+  }
+
+  const owner = ownerFromRemoteUrl(url)
+  if (!owner) {
+    throw new Error(
+      `Could not parse a GitHub owner out of the \`origin\` remote "${url}".\n` +
+      '  · Pass --owner <login-or-org> explicitly instead.'
+    )
+  }
+  return owner
+}
+
+/**
+ * Pulls the owner out of a GitHub remote URL, SSH or HTTPS alike:
+ * "git@github.com:owner/repo.git" and "https://github.com/owner/repo" both give "owner".
+ * Returns null for a remote that isn't a github.com URL at all.
+ */
+export function ownerFromRemoteUrl(url) {
+  const match = url.match(/github\.com[:/]([^/]+)\//)
+  return match ? match[1] : null
+}
+
 // ── Discovery ──────────────────────────────────────────────────────────────
+
+/**
+ * Filters candidate repo names down to the sites actually created from
+ * `owner/TEMPLATE_REPO`, sorted — or throws if none match.
+ *
+ * `getTemplate(name)` is injected rather than calling `gh` here directly, the
+ * same way resolveGitIdentity() takes `hasLocalIdentity` instead of shelling
+ * out to `git config` itself: it lets this decision logic — including the
+ * zero-match failure below — be tested without a network call or a real `gh`.
+ *
+ * Throws when nothing matches, rather than returning an empty list: a
+ * propagation that touches zero sites must never report success (that used
+ * to be exactly what happened whenever `owner` was wrong, e.g. pointed at an
+ * account that no longer holds the estate) — it must fail loudly enough that
+ * the operator can see it, right there, before the run declares victory.
+ */
+export function buildSiteList(owner, names, getTemplate) {
+  const expected = `${owner}/${TEMPLATE_REPO}`
+  const sites = names
+    .filter((name) => getTemplate(name) === expected)
+    .map((name) => `${owner}/${name}`)
+
+  if (!sites.length) {
+    throw new Error(
+      `Discovered 0 websites under owner "${owner}" (searched ${names.length} of its ` +
+      `repositories for template_repository = "${expected}").\n` +
+      '  · This is almost always a wrong owner, not an empty estate — e.g. the estate\n' +
+      '    moved to a different account/org and this ran against the old one.\n' +
+      '  · Pass --owner <login-or-org> explicitly, or --repo <owner/name> to target\n' +
+      '    sites directly, bypassing discovery entirely.'
+    )
+  }
+
+  return sites.sort()
+}
 
 /**
  * Every website, derived from the template link GitHub records permanently.
@@ -241,24 +349,21 @@ function verifyPublished(expect) {
  * repositories validated before a release and the set updated after it cannot
  * drift apart. There is no list to maintain.
  *
- * Blind spot, accepted knowingly: this finds repositories OWNED by the
- * template's owner that still carry the link. A site created by fork or
- * transferred in is invisible — pass it with --repo.
+ * Blind spot, accepted knowingly: this finds repositories OWNED by `owner`
+ * that still carry the link. A site created by fork or transferred in is
+ * invisible — pass it with --repo.
  */
 function discoverSites(owner) {
+  console.log(`Discovering websites created from ${owner}/${TEMPLATE_REPO}`)
+
   const names = gh([
     'api', `users/${owner}/repos?per_page=100&type=owner`, '--paginate',
     '--jq', '.[] | select(.archived == false) | .name',
   ]).split('\n').filter(Boolean)
 
-  const sites = []
-  for (const name of names) {
-    const template = gh([
-      'api', `repos/${owner}/${name}`, '--jq', '.template_repository.full_name // ""',
-    ])
-    if (template === `${owner}/${TEMPLATE_REPO}`) sites.push(`${owner}/${name}`)
-  }
-  return sites.sort()
+  return buildSiteList(owner, names, (name) => gh([
+    'api', `repos/${owner}/${name}`, '--jq', '.template_repository.full_name // ""',
+  ]))
 }
 
 // ── Per-site work ──────────────────────────────────────────────────────────
@@ -339,20 +444,21 @@ function propagateTo(repo, { dryRun, merge, identityArgs }) {
 // ── Main ───────────────────────────────────────────────────────────────────
 
 // Guarded so a test can `import` this module for its pure helpers (SCOPE,
-// parseArgs, expandPackageName, scopedDeps, resolveGitIdentity, gitIdentityArgs)
-// without running the CLI — which talks to `gh` and the registry from its very
-// first line.
+// TEMPLATE_REPO, parseArgs, expandPackageName, scopedDeps, resolveGitIdentity,
+// gitIdentityArgs, resolveOwner, ownerFromRemoteUrl, buildSiteList) without
+// running the CLI — which talks to `gh` and the registry from its very first
+// line.
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (isMain) {
-  const { expect, repos, dryRun, merge } = parseArgs(process.argv.slice(2))
+  const { expect, repos, owner, dryRun, merge } = parseArgs(process.argv.slice(2))
 
   console.log('Checking gh authentication')
   ensureGhAuth()
 
-  // Fetched once and reused for both site discovery (login) and, if needed, deriving a
-  // git commit identity (login + id) — see resolveGitIdentity().
+  // Fetched once and reused for deriving a git commit identity (login + id) — see
+  // resolveGitIdentity(). Site discovery does NOT use this: see resolveOwner(), which
+  // deliberately never derives the estate's owner from whoever is authenticated.
   const user = JSON.parse(gh(['api', 'user']))
-  const owner = user.login
 
   console.log('Resolving a git commit identity')
   const identity = resolveGitIdentity(user, process.env, hasLocalGitIdentity())
@@ -364,7 +470,7 @@ if (isMain) {
   console.log('Verifying the registry serves the expected versions')
   verifyPublished(expect)
 
-  const sites = repos.length ? repos : discoverSites(owner)
+  const sites = repos.length ? repos : discoverSites(resolveOwner(owner))
   console.log(`\n${sites.length} website(s):`)
   for (const site of sites) console.log(`  ${site}`)
 

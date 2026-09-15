@@ -1,0 +1,35 @@
+name: CI
+
+# This repo ships reusable workflows for other repos to call — it is not
+# itself a website or package repo, which is why none of the *-ci.yml files
+# here run against it. But tools/propagate.mjs is real, non-trivial code:
+# it is the one tool the whole estate's release process runs through, and a
+# defect in it propagates to every website at once. Until this workflow
+# existed nothing ran tools/propagate.test.mjs anywhere but a developer's own
+# machine — a pull request touching it showed zero checks, so a passing test
+# suite was never actually verified before merge.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test tools/ (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      # No package.json exists here on purpose — see dependabot.yml's own
+      # comment: this repo ships workflows, not a package, so there is
+      # nothing for `npm ci`/`npm test` to install or run. Node's built-in
+      # test runner exercises tools/*.test.mjs directly instead, the same way
+      # a developer already runs it locally.
+      - name: Run tools/ tests
+        run: node --test tools/*.test.mjs

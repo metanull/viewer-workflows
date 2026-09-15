@@ -84,8 +84,8 @@ directory — for two reasons: it is where `tools/propagate.mjs` is read from,
 and its `origin` remote is where the tool reads the GitHub owner (user or org)
 to search for sites under. That owner is deliberately never the operator's
 own `gh` login — a collaborator's personal account does not own the sites,
-and after the estate moves from `metanull` to `museumwithnofrontiers` no
-operator's login would either. Pass `--owner <login-or-org>` to override it
+and now that the estate has moved from `metanull` to `museumwithnofrontiers`,
+no operator's login does either. Pass `--owner <login-or-org>` to override it
 (e.g. running from a checkout whose remote does not point at the estate).
 
 Add `--dry-run` first if you want to see what it would do. `--repo owner/name`
@@ -107,7 +107,7 @@ indistinguishable from a real, quiet propagation.
 The tool only removes repetition; the procedure stands without it. Per site:
 
 ```bash
-gh repo clone metanull/<site> && cd <site>
+gh repo clone museumwithnofrontiers/<site> && cd <site>
 git checkout -b chore/propagate-platform-packages
 npm install @museumwnf/viewer-core@latest @museumwnf/viewer-layout@latest
 git commit -am "chore(deps): adopt the published @museumwnf packages"

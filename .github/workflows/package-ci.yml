@@ -89,10 +89,12 @@ jobs:
       matrix: ${{ steps.read.outputs.matrix }}
       count: ${{ steps.read.outputs.count }}
     steps:
-      # A website is, by definition, a repository created from
-      # metanull/website-template — GitHub records that permanently as
-      # `template_repository`. Deriving the list from it means a new site is a
-      # downstream consumer the moment it exists, with no file to maintain.
+      # A website is, by definition, a repository created from the estate
+      # owner's website-template (resolved below via github.repository_owner,
+      # never hardcoded, since that owner has already moved once) — GitHub
+      # records the link permanently as `template_repository`. Deriving the
+      # list from it means a new site is a downstream consumer the moment it
+      # exists, with no file to maintain.
       #
       # This replaces the hand-written dependents.json, which had to be edited
       # in BOTH package repos for every new site and was the source of a

@@ -19,12 +19,16 @@ jobs:
       # Auto-merge: minor/patch bumps of the reusable workflows themselves,
       # plus patch bumps of dev dependencies. Majors are left for a human.
       #
-      # metanull/viewer-workflows is here because consumers pin it to an exact
-      # version rather than a moving `v1` tag, so a release reaches them as a
+      # viewer-workflows is here because consumers pin it to an exact version
+      # rather than a moving `v1` tag, so a release reaches them as a
       # Dependabot pull request. That PR runs this repository's full CI before
       # merging, which is the verification the old force-moved tag never had —
       # so letting a green minor/patch merge itself keeps propagation automatic
-      # without giving up the check.
+      # without giving up the check. Matching is on the repo name alone
+      # ('viewer-workflows'), not 'owner/viewer-workflows' — the repo moved
+      # from the metanull personal account to the museumwithnofrontiers org
+      # once already, and matching only the name means the next such move
+      # can't silently break this condition again.
       #
       # The published @museumwnf npm packages (viewer-core, viewer-layout,
       # viewer-i18n, the per-site data packages) are deliberately NOT listed
@@ -36,7 +40,7 @@ jobs:
       - name: Enable auto-merge
         if: >-
           (
-            contains(steps.metadata.outputs.dependency-names, 'metanull/viewer-workflows') &&
+            contains(steps.metadata.outputs.dependency-names, 'viewer-workflows') &&
             (
               steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
               steps.metadata.outputs.update-type == 'version-update:semver-patch'

@@ -5,12 +5,12 @@
  * This is step 3 of the release flow in MAINTENANCE.md, and the one step a
  * human triggers. Everything before it is CI; everything after it is CI.
  *
- * Why this exists rather than Dependabot: GitHub Packages requires a token for
- * every npm install — including of a PUBLIC package — and Dependabot has no
- * route to one that does not mean storing a PAT in every repository. So the
- * @museumwnf scope is ignored in each site's dependabot.yml and propagated
- * here instead, using the operator's own credentials, which are already on
- * their machine and are never written anywhere.
+ * Why this exists rather than Dependabot: propagation is the one point in the
+ * release flow where a human decides *when* a new version reaches sites, not
+ * a mechanical version bump — see MAINTENANCE.md's rule 3. So the
+ * @museumwnf scope is deliberately excluded from each site's dependabot.yml
+ * and propagated here instead, using the operator's own credentials, which
+ * are already on their machine and are never written anywhere.
  *
  * Usage:
  *   node tools/propagate.mjs --expect viewer-core@1.0.0 [--expect viewer-layout@1.0.0]
@@ -31,16 +31,17 @@
  *   --no-merge                 Open the pull requests but do not enable
  *                              auto-merge.
  *
- * Requires: `gh` authenticated as the operator, and a personal
- * ~/.npmrc carrying a GitHub Packages token. Never reads a token from the
- * environment and never prints one — but `gh` itself may: on the operator's
- * own machine `gh auth login` normally stores the token in the OS keyring,
- * which a container cannot reach. Run in Docker with `-e GH_TOKEN=$(gh auth
- * token)`; mounting `~/.config/gh` alone carries no usable token when the
- * host's `gh` uses keyring storage. This tool runs `gh auth setup-git` itself
- * on every invocation (cheap, idempotent) so `git push` authenticates the
- * same way `gh` does, and it fails fast with a clear message if `gh` itself
- * is not authenticated, rather than surfacing a cryptic mid-run push error.
+ * Requires: `gh` authenticated as the operator. Package versions are read
+ * from the public npmjs registry, which needs no credential of its own. This
+ * tool never reads a token from the environment and never prints one — but
+ * `gh` itself may: on the operator's own machine `gh auth login` normally
+ * stores the token in the OS keyring, which a container cannot reach. Run in
+ * Docker with `-e GH_TOKEN=$(gh auth token)`; mounting `~/.config/gh` alone
+ * carries no usable token when the host's `gh` uses keyring storage. This
+ * tool runs `gh auth setup-git` itself on every invocation (cheap,
+ * idempotent) so `git push` authenticates the same way `gh` does, and it
+ * fails fast with a clear message if `gh` itself is not authenticated,
+ * rather than surfacing a cryptic mid-run push error.
  *
  * The same disposable container has no git commit identity either — no
  * ~/.gitconfig, no GIT_AUTHOR_NAME/EMAIL or GIT_COMMITTER_NAME/EMAIL env.
@@ -202,10 +203,9 @@ export function expandPackageName(name, scope = SCOPE) {
 /**
  * Refuse to start unless the registry already serves every expected version.
  *
- * `npm view` authenticates from the operator's own ~/.npmrc. A failure here is
- * almost always one of two things, and the message says which: the publish
- * workflow has not finished, or the machine is not logged in to GitHub
- * Packages.
+ * `npm view` resolves against the public npmjs registry, which these packages
+ * need no credential to read. A failure here is almost always the same thing,
+ * and the message says so: the publish workflow has not finished yet.
  */
 function verifyPublished(expect) {
   for (const spec of expect) {
@@ -222,8 +222,7 @@ function verifyPublished(expect) {
         `${full}@${version} is not on the registry.\n` +
         '  · If you have just merged the release PR, the publish workflow may still be running —\n' +
         '    it is triggered by publishing the GitHub Release, not by the merge.\n' +
-        '  · Otherwise check that this machine is logged in to GitHub Packages\n' +
-        '    (a ~/.npmrc line for //npm.pkg.github.com/).'
+        '  · Otherwise double-check the package name and version.'
       )
     }
     if (published !== version) {

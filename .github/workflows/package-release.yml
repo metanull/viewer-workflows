@@ -3,20 +3,6 @@ name: Package release
 on:
   workflow_call:
     inputs:
-      registry:
-        description: >-
-          Vestigial. npmjs is now the only publish path, and this input is no
-          longer read by any job here. It is kept declared — rather than
-          removed — purely for compatibility with callers still passing it:
-          dependabot-automerge.yml auto-merges minor/patch bumps of this
-          repository's pin, so Dependabot could bump a caller's `uses:` line
-          on its own while `registry: npmjs` still sat in its `with:` block,
-          and an input this workflow no longer declared would fail that run
-          outright — not caught until the caller's next release. Remove this
-          input in a later release, once every caller has stopped passing it.
-        type: string
-        required: false
-        default: npmjs
       publish_mode:
         description: >-
           Must match the "Allowed actions" chosen for this workflow's

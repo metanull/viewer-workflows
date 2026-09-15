@@ -91,8 +91,8 @@ test('expandPackageName leaves an already-scoped name untouched', () => {
 })
 
 // resolveGitIdentity() / gitIdentityArgs() — regression tests for the tool's own git commit
-// failing in the documented container: `node:lts-alpine` + git + gh, mounting the repo and
-// ~/.npmrc, has no ~/.gitconfig and no GIT_AUTHOR_*/GIT_COMMITTER_* env, so the first `git
+// failing in the documented container: `node:lts-alpine` + git + gh, mounting only the repo,
+// has no ~/.gitconfig and no GIT_AUTHOR_*/GIT_COMMITTER_* env, so the first `git
 // commit` used to die with "Author identity unknown" on every site propagateTo() touched,
 // since the identity was never established up front, only discovered missing inside the
 // per-site loop. These exercise only the precedence logic (env → local config → derived

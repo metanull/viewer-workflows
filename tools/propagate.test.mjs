@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { SCOPE, expandPackageName, scopedDeps } from './propagate.mjs'
+import { SCOPE, expandPackageName, gitIdentityArgs, resolveGitIdentity, scopedDeps } from './propagate.mjs'
 
 // Mirrors metanull/islamicart's package.json dependencies block.
 const SITE_PACKAGE_JSON = {
@@ -88,4 +88,72 @@ test('expandPackageName qualifies a bare name with SCOPE', () => {
 
 test('expandPackageName leaves an already-scoped name untouched', () => {
   assert.equal(expandPackageName('@other/pkg'), '@other/pkg')
+})
+
+// resolveGitIdentity() / gitIdentityArgs() — regression tests for the tool's own git commit
+// failing in the documented container: `node:lts-alpine` + git + gh, mounting the repo and
+// ~/.npmrc, has no ~/.gitconfig and no GIT_AUTHOR_*/GIT_COMMITTER_* env, so the first `git
+// commit` used to die with "Author identity unknown" on every site propagateTo() touched,
+// since the identity was never established up front, only discovered missing inside the
+// per-site loop. These exercise only the precedence logic (env → local config → derived
+// from the GitHub user); none of it shells out to git or the network, by construction —
+// `hasLocalGitIdentity` (the one piece that does run `git config --get`) is deliberately
+// not exported so the git check itself stays untested here and the injected boolean stands
+// in for it.
+
+const GIT_IDENTITY_ENV = {
+  GIT_AUTHOR_NAME: 'A',
+  GIT_AUTHOR_EMAIL: 'a@example.com',
+  GIT_COMMITTER_NAME: 'A',
+  GIT_COMMITTER_EMAIL: 'a@example.com',
+}
+
+const GH_USER = { login: 'phavelange', id: 12345 }
+
+test('resolveGitIdentity: full GIT_AUTHOR_*/GIT_COMMITTER_* env wins, even over no local identity', () => {
+  assert.equal(resolveGitIdentity(GH_USER, GIT_IDENTITY_ENV, false), null)
+})
+
+test('resolveGitIdentity: a partial env (missing GIT_COMMITTER_EMAIL) does not count as an identity', () => {
+  const { GIT_COMMITTER_EMAIL, ...partial } = GIT_IDENTITY_ENV
+  // Falls through to the local-config check, which here says yes — so still null, but for
+  // the second reason, not the first. The next test isolates that the env check alone
+  // requires the complete GIT_AUTHOR_*/GIT_COMMITTER_* set, not just some of it.
+  assert.equal(resolveGitIdentity(GH_USER, partial, true), null)
+  assert.deepEqual(resolveGitIdentity(GH_USER, partial, false), {
+    name: 'phavelange',
+    email: '12345+phavelange@users.noreply.github.com',
+  })
+})
+
+test('resolveGitIdentity: existing local git config wins over deriving one, when env is unset', () => {
+  assert.equal(resolveGitIdentity(GH_USER, {}, true), null)
+})
+
+test('resolveGitIdentity: derives login + id into the conventional GitHub no-reply address', () => {
+  assert.deepEqual(resolveGitIdentity(GH_USER, {}, false), {
+    name: 'phavelange',
+    email: '12345+phavelange@users.noreply.github.com',
+  })
+})
+
+test('resolveGitIdentity: throws one clear error, not a git failure, when nothing is available', () => {
+  assert.throws(() => resolveGitIdentity({}, {}, false), /No git commit identity is available/)
+  assert.throws(() => resolveGitIdentity(null, {}, false), /No git commit identity is available/)
+})
+
+test('resolveGitIdentity: throws when the GitHub user is missing a login or id', () => {
+  assert.throws(() => resolveGitIdentity({ login: 'x' }, {}, false), /No git commit identity/)
+  assert.throws(() => resolveGitIdentity({ id: 1 }, {}, false), /No git commit identity/)
+})
+
+test('gitIdentityArgs: null identity (git already has one) injects nothing', () => {
+  assert.deepEqual(gitIdentityArgs(null), [])
+})
+
+test('gitIdentityArgs: a derived identity becomes per-invocation -c flags, not global config', () => {
+  assert.deepEqual(
+    gitIdentityArgs({ name: 'phavelange', email: '12345+phavelange@users.noreply.github.com' }),
+    ['-c', 'user.name=phavelange', '-c', 'user.email=12345+phavelange@users.noreply.github.com']
+  )
 })

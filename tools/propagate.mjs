@@ -41,6 +41,12 @@
  * on every invocation (cheap, idempotent) so `git push` authenticates the
  * same way `gh` does, and it fails fast with a clear message if `gh` itself
  * is not authenticated, rather than surfacing a cryptic mid-run push error.
+ *
+ * The same disposable container has no git commit identity either — no
+ * ~/.gitconfig, no GIT_AUTHOR_NAME/EMAIL or GIT_COMMITTER_NAME/EMAIL env.
+ * resolveGitIdentity() below establishes one with the same "fail fast, once,
+ * up front" shape as ensureGhAuth(), rather than letting `git commit` fail
+ * per site.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -123,6 +129,71 @@ function ensureGhAuth() {
   }
 }
 
+/** Whether `git config` already resolves both `user.name` and `user.email` — a real
+ * developer machine, or a container someone configured ahead of time. Config only:
+ * GIT_AUTHOR_NAME/EMAIL and GIT_COMMITTER_NAME/EMAIL are environment overrides that
+ * `git config --get` does not see, which is why resolveGitIdentity() below checks them as
+ * a separate, higher-precedence step rather than folding them in here. */
+function hasLocalGitIdentity() {
+  try {
+    run('git', ['config', '--get', 'user.name'])
+    run('git', ['config', '--get', 'user.email'])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Decide whether `git commit` already has an author identity to work with, and if not,
+ * derive one — so the tool remains usable in the disposable container it is documented to
+ * run in (see file header), which starts with neither.
+ *
+ * Precedence, and why:
+ *   1. GIT_AUTHOR_NAME/EMAIL + GIT_COMMITTER_NAME/EMAIL already set in the environment:
+ *      git already reads these for every commit, and an operator who exported them on
+ *      purpose should win over anything this tool would guess.
+ *   2. `git config user.name`/`user.email` already resolve: leave them alone, the same way
+ *      ensureGhAuth() above leaves an existing `gh auth login` alone rather than
+ *      re-authenticating over it.
+ *   3. Otherwise, derive one from the GitHub identity this tool already has to
+ *      authenticate — `user`, the `gh api user` response fetched once in main() and reused
+ *      here. `login` and the numeric `id` give the conventional GitHub no-reply address, so
+ *      a commit made through this tool is attributed to whoever ran it rather than to an
+ *      anonymous default, which matters because these commits land as PRs across the
+ *      estate.
+ *
+ * Returns `null` when an identity already exists (cases 1–2, nothing to do), or
+ * `{ name, email }` derived from the GitHub account (case 3). Throws, once, up front —
+ * before any site is touched — if none of the above can supply one, rather than letting
+ * `git commit` fail with the same opaque error again for every site in turn.
+ */
+export function resolveGitIdentity(user, env, hasLocalIdentity) {
+  const hasEnvIdentity = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']
+    .every((key) => env[key])
+  if (hasEnvIdentity || hasLocalIdentity) return null
+
+  if (!user?.login || !user?.id) {
+    throw new Error(
+      'No git commit identity is available, and none could be derived.\n' +
+      '  · Set GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL and GIT_COMMITTER_NAME/GIT_COMMITTER_EMAIL, or\n' +
+      '  · run `git config --global user.name`/`user.email` in this container, or\n' +
+      '  · make sure `gh api user` returns a "login" and numeric "id" (it already must, for\n' +
+      '    gh itself to be authenticated).'
+    )
+  }
+
+  return { name: user.login, email: `${user.id}+${user.login}@users.noreply.github.com` }
+}
+
+/** `git -c user.name=... -c user.email=...` arguments to prepend to a single `commit`
+ * invocation for a derived identity, or `[]` to change nothing when `identity` is `null`
+ * (git already has one). Per-invocation rather than `git config --global`: this tool should
+ * not reconfigure the machine or container it happens to run in. */
+export function gitIdentityArgs(identity) {
+  return identity ? ['-c', `user.name=${identity.name}`, '-c', `user.email=${identity.email}`] : []
+}
+
 /** A bare package name given on the command line, qualified with SCOPE. A name already carrying its own scope (e.g. a one-off `@other/pkg`) passes through unchanged. */
 export function expandPackageName(name, scope = SCOPE) {
   return name.startsWith('@') ? name : `${scope}/${name}`
@@ -201,7 +272,7 @@ export function scopedDeps(dir, scope = SCOPE) {
     .sort()
 }
 
-function propagateTo(repo, { dryRun, merge }) {
+function propagateTo(repo, { dryRun, merge, identityArgs }) {
   const work = mkdtempSync(join(tmpdir(), 'propagate-'))
   try {
     gh(['repo', 'clone', repo, work, '--', '--depth', '1'], { stdio: 'pipe' })
@@ -248,7 +319,7 @@ function propagateTo(repo, { dryRun, merge }) {
       'before it was published; this pull request re-runs that check here, in\n' +
       'context, before the site adopts it.\n'
     )
-    run('git', ['commit', '-F', body], { cwd: work, stdio: 'pipe' })
+    run('git', [...identityArgs, 'commit', '-F', body], { cwd: work, stdio: 'pipe' })
     run('git', ['push', '-u', 'origin', BRANCH], { cwd: work, stdio: 'pipe' })
 
     // --head is required alongside --repo: with an explicit repo, `gh` does not
@@ -269,8 +340,9 @@ function propagateTo(repo, { dryRun, merge }) {
 // ── Main ───────────────────────────────────────────────────────────────────
 
 // Guarded so a test can `import` this module for its pure helpers (SCOPE,
-// parseArgs, expandPackageName, scopedDeps) without running the CLI — which
-// talks to `gh` and the registry from its very first line.
+// parseArgs, expandPackageName, scopedDeps, resolveGitIdentity, gitIdentityArgs)
+// without running the CLI — which talks to `gh` and the registry from its very
+// first line.
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (isMain) {
   const { expect, repos, dryRun, merge } = parseArgs(process.argv.slice(2))
@@ -278,7 +350,17 @@ if (isMain) {
   console.log('Checking gh authentication')
   ensureGhAuth()
 
-  const owner = gh(['api', 'user', '--jq', '.login'])
+  // Fetched once and reused for both site discovery (login) and, if needed, deriving a
+  // git commit identity (login + id) — see resolveGitIdentity().
+  const user = JSON.parse(gh(['api', 'user']))
+  const owner = user.login
+
+  console.log('Resolving a git commit identity')
+  const identity = resolveGitIdentity(user, process.env, hasLocalGitIdentity())
+  console.log(identity
+    ? `  none found; committing as ${identity.name} <${identity.email}>`
+    : '  using the existing git identity')
+  const identityArgs = gitIdentityArgs(identity)
 
   console.log('Verifying the registry serves the expected versions')
   verifyPublished(expect)
@@ -289,7 +371,7 @@ if (isMain) {
 
   console.log(`\nPropagating${dryRun ? ' (dry run)' : ''}`)
   const results = sites.map((site) => {
-    const result = propagateTo(site, { dryRun, merge })
+    const result = propagateTo(site, { dryRun, merge, identityArgs })
     console.log(`  ${result.status.padEnd(12)} ${result.repo}  ${result.detail}`)
     return result
   })

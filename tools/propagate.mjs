@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Propagate published @metanull packages to every MWNF website.
+ * Propagate published @museumwnf packages to every MWNF website.
  *
  * This is step 3 of the release flow in MAINTENANCE.md, and the one step a
  * human triggers. Everything before it is CI; everything after it is CI.
@@ -8,7 +8,7 @@
  * Why this exists rather than Dependabot: GitHub Packages requires a token for
  * every npm install — including of a PUBLIC package — and Dependabot has no
  * route to one that does not mean storing a PAT in every repository. So the
- * @metanull scope is ignored in each site's dependabot.yml and propagated
+ * @museumwnf scope is ignored in each site's dependabot.yml and propagated
  * here instead, using the operator's own credentials, which are already on
  * their machine and are never written anywhere.
  *
@@ -47,14 +47,15 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
-const SCOPE = '@metanull'
+export const SCOPE = '@museumwnf'
 const TEMPLATE_REPO = 'website-template'
 const BRANCH = 'chore/propagate-platform-packages'
 
 // ── Arguments ──────────────────────────────────────────────────────────────
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const expect = []
   const repos = []
   let dryRun = false
@@ -122,6 +123,11 @@ function ensureGhAuth() {
   }
 }
 
+/** A bare package name given on the command line, qualified with SCOPE. A name already carrying its own scope (e.g. a one-off `@other/pkg`) passes through unchanged. */
+export function expandPackageName(name, scope = SCOPE) {
+  return name.startsWith('@') ? name : `${scope}/${name}`
+}
+
 /**
  * Refuse to start unless the registry already serves every expected version.
  *
@@ -136,7 +142,7 @@ function verifyPublished(expect) {
     if (at <= 0) throw new Error(`--expect must be <package>@<version>, got "${spec}"`)
     const name = spec.slice(0, at)
     const version = spec.slice(at + 1)
-    const full = name.startsWith('@') ? name : `${SCOPE}/${name}`
+    const full = expandPackageName(name)
     let published
     try {
       published = run('npm', ['view', `${full}@${version}`, 'version'])
@@ -187,11 +193,11 @@ function discoverSites(owner) {
 
 // ── Per-site work ──────────────────────────────────────────────────────────
 
-/** Every @metanull dependency a site declares, from its own manifest. */
-function metanullDeps(dir) {
+/** Every SCOPE-namespaced dependency a site declares, from its own manifest. */
+export function scopedDeps(dir, scope = SCOPE) {
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
   return Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })
-    .filter((name) => name.startsWith(`${SCOPE}/`))
+    .filter((name) => name.startsWith(`${scope}/`))
     .sort()
 }
 
@@ -200,7 +206,7 @@ function propagateTo(repo, { dryRun, merge }) {
   try {
     gh(['repo', 'clone', repo, work, '--', '--depth', '1'], { stdio: 'pipe' })
 
-    const deps = metanullDeps(work)
+    const deps = scopedDeps(work)
     if (!deps.length) return { repo, status: 'skipped', detail: `no ${SCOPE} dependencies` }
 
     const before = readFileSync(join(work, 'package-lock.json'), 'utf8')
@@ -262,34 +268,40 @@ function propagateTo(repo, { dryRun, merge }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
-const { expect, repos, dryRun, merge } = parseArgs(process.argv.slice(2))
+// Guarded so a test can `import` this module for its pure helpers (SCOPE,
+// parseArgs, expandPackageName, scopedDeps) without running the CLI — which
+// talks to `gh` and the registry from its very first line.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMain) {
+  const { expect, repos, dryRun, merge } = parseArgs(process.argv.slice(2))
 
-console.log('Checking gh authentication')
-ensureGhAuth()
+  console.log('Checking gh authentication')
+  ensureGhAuth()
 
-const owner = gh(['api', 'user', '--jq', '.login'])
+  const owner = gh(['api', 'user', '--jq', '.login'])
 
-console.log('Verifying the registry serves the expected versions')
-verifyPublished(expect)
+  console.log('Verifying the registry serves the expected versions')
+  verifyPublished(expect)
 
-const sites = repos.length ? repos : discoverSites(owner)
-console.log(`\n${sites.length} website(s):`)
-for (const site of sites) console.log(`  ${site}`)
+  const sites = repos.length ? repos : discoverSites(owner)
+  console.log(`\n${sites.length} website(s):`)
+  for (const site of sites) console.log(`  ${site}`)
 
-console.log(`\nPropagating${dryRun ? ' (dry run)' : ''}`)
-const results = sites.map((site) => {
-  const result = propagateTo(site, { dryRun, merge })
-  console.log(`  ${result.status.padEnd(12)} ${result.repo}  ${result.detail}`)
-  return result
-})
+  console.log(`\nPropagating${dryRun ? ' (dry run)' : ''}`)
+  const results = sites.map((site) => {
+    const result = propagateTo(site, { dryRun, merge })
+    console.log(`  ${result.status.padEnd(12)} ${result.repo}  ${result.detail}`)
+    return result
+  })
 
-const failed = results.filter((r) => r.status === 'failed')
-console.log(`\n${results.filter((r) => r.status === 'opened').length} opened, ` +
-  `${results.filter((r) => r.status === 'current').length} already current, ` +
-  `${failed.length} failed`)
+  const failed = results.filter((r) => r.status === 'failed')
+  console.log(`\n${results.filter((r) => r.status === 'opened').length} opened, ` +
+    `${results.filter((r) => r.status === 'current').length} already current, ` +
+    `${failed.length} failed`)
 
-if (failed.length) {
-  console.log('\nFailed:')
-  for (const f of failed) console.log(`  ${f.repo}: ${f.detail}`)
-  process.exit(1)
+  if (failed.length) {
+    console.log('\nFailed:')
+    for (const f of failed) console.log(`  ${f.repo}: ${f.detail}`)
+    process.exit(1)
+  }
 }

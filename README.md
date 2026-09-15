@@ -1,6 +1,6 @@
 # viewer-workflows
 
-Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them by an exact version — `metanull/viewer-workflows/.github/workflows/<file>@v1.5.0`. Tags here are immutable; see [Versioning](#versioning). Platform maintenance procedure: [MAINTENANCE.md](MAINTENANCE.md).
+Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them by an exact version — `metanull/viewer-workflows/.github/workflows/<file>@vX.Y.Z`, replacing `vX.Y.Z` with the [latest release tag](https://github.com/metanull/viewer-workflows/tags). Tags here are immutable; see [Versioning](#versioning). Platform maintenance procedure: [MAINTENANCE.md](MAINTENANCE.md).
 
 | Workflow | For | Purpose | Inputs | Repo prerequisites |
 |---|---|---|---|---|
@@ -10,7 +10,7 @@ Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them 
 | `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of the reusable workflows and dev-dependency patches; majors wait for a human. The `@museumwnf` platform packages are not covered — their rollout is propagated by the operator instead; see [MAINTENANCE.md](MAINTENANCE.md) | — | "Allow auto-merge" enabled |
 | `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | — |
 | `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over every website, using the PR's tarball. If the PR renames `package.json`'s `name`, the tarball is additionally alias-installed under the pre-rename name in every downstream build, so sites still importing the old name are actually tested against this PR's code instead of silently passing against the last published version | — | — (websites are discovered from the `website-template` link) |
-| `package-release.yml` | package repos | `npm publish` to npmjs via trusted publishing, version taken from the release tag | `registry` (vestigial, ignored — kept only so callers still passing it don't break; see the input's own description), `publish_mode` (`direct` \| `staged`, default `direct`) | A trusted publisher configured on npmjs.com for this repo + the *calling* workflow's filename (no secret) — see [Publishing to npmjs](#publishing-to-npmjs) |
+| `package-release.yml` | package repos | `npm publish` to npmjs via trusted publishing, version taken from the release tag | `publish_mode` (`direct` \| `staged`, default `direct`) | A trusted publisher configured on npmjs.com for this repo + the *calling* workflow's filename (no secret) — see [Publishing to npmjs](#publishing-to-npmjs) |
 
 ## Package installs
 
@@ -34,15 +34,6 @@ stage-only token cannot run `npm publish` — it can only stage a version for
 a maintainer to promote by hand. Trusted publishing is the CI-native
 replacement: a short-lived, workflow-scoped credential minted per run, with
 provenance attached automatically.
-
-The workflow still declares a `registry` input, but no job reads it any
-more — every caller already passes `registry: npmjs` (or omits it and gets
-the same default), and GitHub Packages publishing has been removed. The
-input stays declared, not removed, purely so a caller that still passes it
-doesn't break the moment Dependabot auto-merges its next
-`viewer-workflows` pin bump; see the input's own description in
-`package-release.yml` for the full reasoning. It will be deleted in a later
-release once every caller has stopped passing it.
 
 ### One-time setup per package repo (on npmjs.com)
 
@@ -94,9 +85,9 @@ permissions:
   pull-requests: write
 jobs:
   ci:
-    uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.5.0
+    uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@vX.Y.Z
   locales:
-    uses: metanull/viewer-workflows/.github/workflows/locale-validate.yml@v1.5.0
+    uses: metanull/viewer-workflows/.github/workflows/locale-validate.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/deploy.yml` (website repos)
@@ -112,7 +103,7 @@ permissions:
   id-token: write
 jobs:
   deploy:
-    uses: metanull/viewer-workflows/.github/workflows/website-deploy-pages.yml@v1.5.0
+    uses: metanull/viewer-workflows/.github/workflows/website-deploy-pages.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/automerge.yml` (all repos)
@@ -126,7 +117,7 @@ permissions:
   pull-requests: write
 jobs:
   automerge:
-    uses: metanull/viewer-workflows/.github/workflows/dependabot-automerge.yml@v1.5.0
+    uses: metanull/viewer-workflows/.github/workflows/dependabot-automerge.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/audit.yml` (all repos)
@@ -142,7 +133,7 @@ permissions:
   issues: write
 jobs:
   audit:
-    uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@v1.5.0
+    uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/ci.yml` (package repos)
@@ -155,7 +146,7 @@ permissions:
   contents: read
 jobs:
   ci:
-    uses: metanull/viewer-workflows/.github/workflows/package-ci.yml@v1.5.0
+    uses: metanull/viewer-workflows/.github/workflows/package-ci.yml@vX.Y.Z
 ```
 
 ### `.github/workflows/release.yml` (package repos)
@@ -174,7 +165,7 @@ permissions:
   id-token: write
 jobs:
   release:
-    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.5.0
+    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@vX.Y.Z
 ```
 
 ## Versioning
@@ -183,7 +174,7 @@ jobs:
 
 - Release `vX.Y.Z` and stop. There is no moving major tag to update.
 - Consumers pin the exact version:
-  `uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.5.0`
+  `uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@vX.Y.Z`
 - Every consumer declares the `github-actions` Dependabot ecosystem, so a new
   release arrives there as a pull request. Dependabot covers
   [reusable-workflow refs](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot),

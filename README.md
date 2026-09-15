@@ -4,40 +4,27 @@ Reusable GitHub Actions workflows for the MWNF Website Platform. Reference them 
 
 | Workflow | For | Purpose | Inputs | Repo prerequisites |
 |---|---|---|---|---|
-| `website-ci.yml` | website repos | PR checks: build + test + texts (blocking), ESLint + npm audit (reported only) | — | npm scripts `build`, `test`, `lint`; `@metanull/viewer-i18n` installed |
+| `website-ci.yml` | website repos | PR checks: build + test + texts (blocking), ESLint + npm audit (reported only) | — | npm scripts `build`, `test`, `lint`; `@museumwnf/viewer-i18n` installed |
 | `website-deploy-pages.yml` | website repos | Build with `BASE_PATH` and deploy `dist/` to GitHub Pages | `base_path` (optional, default `/<repo-name>/`) | Pages source set to "GitHub Actions" |
 | `locale-validate.yml` | website repos, `viewer-i18n` | Validate the repository's texts with the rules published by [`metanull/viewer-i18n`](https://github.com/metanull/viewer-i18n); auto-merge text-only PRs when green; plain-language PR comment on failure | `mode` (`site` \| `dictionary`, default `site`), `texts_path` (default `locales/`), `dictionary_ref` (default `main`) — output: `locales_only` | "Allow auto-merge" enabled |
-| `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of the reusable workflows and dev-dependency patches; majors wait for a human. The `@metanull` npm scope is not covered — Dependabot cannot read it; see [MAINTENANCE.md](MAINTENANCE.md) | — | "Allow auto-merge" enabled |
+| `dependabot-automerge.yml` | all repos | Auto-merge Dependabot minor/patch bumps of the reusable workflows and dev-dependency patches; majors wait for a human. The `@museumwnf` platform packages are not covered — their rollout is propagated by the operator instead; see [MAINTENANCE.md](MAINTENANCE.md) | — | "Allow auto-merge" enabled |
 | `audit-scheduled.yml` | all repos | Scheduled `npm audit`; opens or updates the issue "npm audit findings" | — | — |
 | `package-ci.yml` | package repos | PR checks: unit tests, `npm pack`, downstream build matrix over every website, using the PR's tarball. If the PR renames `package.json`'s `name`, the tarball is additionally alias-installed under the pre-rename name in every downstream build, so sites still importing the old name are actually tested against this PR's code instead of silently passing against the last published version | — | — (websites are discovered from the `website-template` link) |
-| `package-release.yml` | package repos | `npm publish`, version taken from the release tag | `registry` (`github` \| `npmjs`, default `github`), `publish_mode` (`direct` \| `staged`, default `direct`, npmjs only) | `github`: `publishConfig.registry` set to `https://npm.pkg.github.com`. `npmjs`: a trusted publisher configured on npmjs.com for this repo + the *calling* workflow's filename (no secret) — see [Publishing to npmjs](#publishing-to-npmjs) |
+| `package-release.yml` | package repos | `npm publish` to npmjs via trusted publishing, version taken from the release tag | `registry` (vestigial, ignored — kept only so callers still passing it don't break; see the input's own description), `publish_mode` (`direct` \| `staged`, default `direct`) | A trusted publisher configured on npmjs.com for this repo + the *calling* workflow's filename (no secret) — see [Publishing to npmjs](#publishing-to-npmjs) |
 
-## Private package access
+## Package installs
 
 No workflow takes a secret, and no PAT is ever stored (since v1.1.2; the
-`PACKAGES_READ_TOKEN` secret of earlier releases is gone). All installs
-authenticate with the run's own `github.token`:
-
-- **CI**: for every **private** `@metanull` package a repository consumes, open
-  the package's settings → **Manage Actions access** and add that repository
-  with **Read** — this is what lets `github.token` install it. The grant is
-  UI-only (no REST endpoint) and takes effect for runs *started after* it: a
-  run that failed with `403 permission_denied: read_package` must be re-run.
-  A package repo builds every website downstream, so it needs read access to
-  every private package those websites consume, too.
-- **Local development**: developers authenticate themselves — `npm login
-  --registry=https://npm.pkg.github.com` or a personal `~/.npmrc` with
-  `//npm.pkg.github.com/:_authToken=<their own PAT>`. Tokens never go in the
-  repo or in repository secrets.
+`PACKAGES_READ_TOKEN` secret of earlier releases is gone). All eleven
+platform packages (`viewer-core`, `viewer-layout`, `viewer-i18n`, every
+`<dataset>-data` package) are public on npmjs, so CI installs them like any
+other public dependency — plain `actions/setup-node` plus `npm ci`, no
+`registry-url`, no `scope`, no auth token of any kind. Local development
+needs nothing special either, for the same reason.
 
 ## Publishing to npmjs
 
-`package-release.yml` accepts an optional `registry` input, `github` (default)
-or `npmjs`. Omitting it — every caller pinned today does — is unchanged
-behaviour: the job publishes to `npm.pkg.github.com` with `github.token`,
-exactly as before this input existed.
-
-Passing `registry: npmjs` instead publishes to `registry.npmjs.org` using
+`package-release.yml` publishes to `registry.npmjs.org` using
 [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) — OIDC,
 not a stored secret. **No `NPM_TOKEN` or any other npm token is read by this
 workflow.** That's deliberate, not a stopgap: the only npm access token a
@@ -47,6 +34,15 @@ stage-only token cannot run `npm publish` — it can only stage a version for
 a maintainer to promote by hand. Trusted publishing is the CI-native
 replacement: a short-lived, workflow-scoped credential minted per run, with
 provenance attached automatically.
+
+The workflow still declares a `registry` input, but no job reads it any
+more — every caller already passes `registry: npmjs` (or omits it and gets
+the same default), and GitHub Packages publishing has been removed. The
+input stays declared, not removed, purely so a caller that still passes it
+doesn't break the moment Dependabot auto-merges its next
+`viewer-workflows` pin bump; see the input's own description in
+`package-release.yml` for the full reasoning. It will be deleted in a later
+release once every caller has stopped passing it.
 
 ### One-time setup per package repo (on npmjs.com)
 
@@ -96,7 +92,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  packages: read
 jobs:
   ci:
     uses: metanull/viewer-workflows/.github/workflows/website-ci.yml@v1.5.0
@@ -113,7 +108,6 @@ on:
     branches: [main]
 permissions:
   contents: read
-  packages: read
   pages: write
   id-token: write
 jobs:
@@ -146,7 +140,6 @@ on:
 permissions:
   contents: read
   issues: write
-  packages: read
 jobs:
   audit:
     uses: metanull/viewer-workflows/.github/workflows/audit-scheduled.yml@v1.5.0
@@ -158,11 +151,8 @@ jobs:
 name: CI
 on:
   pull_request:
-# packages: read is required — a called workflow can only downgrade the
-# caller's token, so the reusable workflow cannot add it by itself.
 permissions:
   contents: read
-  packages: read
 jobs:
   ci:
     uses: metanull/viewer-workflows/.github/workflows/package-ci.yml@v1.5.0
@@ -170,22 +160,8 @@ jobs:
 
 ### `.github/workflows/release.yml` (package repos)
 
-```yaml
-name: Release
-on:
-  release:
-    types: [published]
-permissions:
-  contents: read
-  packages: write
-jobs:
-  release:
-    uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.5.0
-```
-
-To instead publish to npmjs via trusted publishing, pass `registry: npmjs`
-and grant `id-token: write` — no secret to forward, but the trusted
-publisher on npmjs.com must already be configured for *this exact*
+Publishes to npmjs via trusted publishing — no secret to forward, but the
+trusted publisher on npmjs.com must already be configured for *this exact*
 `release.yml` filename in *this* repo (see the one-time setup above):
 
 ```yaml
@@ -195,13 +171,10 @@ on:
     types: [published]
 permissions:
   contents: read
-  packages: write
   id-token: write
 jobs:
   release:
     uses: metanull/viewer-workflows/.github/workflows/package-release.yml@v1.5.0
-    with:
-      registry: npmjs
 ```
 
 ## Versioning

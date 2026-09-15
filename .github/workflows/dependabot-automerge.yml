@@ -26,11 +26,13 @@ jobs:
       # so letting a green minor/patch merge itself keeps propagation automatic
       # without giving up the check.
       #
-      # The @metanull npm packages are deliberately NOT listed. Dependabot
-      # cannot read npm.pkg.github.com — it has no route to a token, even for a
-      # public package — so `.github/dependabot.yml` ignores that scope and no
-      # such pull request can ever exist. Those packages are propagated by the
-      # operator instead; see MAINTENANCE.md.
+      # The published @museumwnf npm packages (viewer-core, viewer-layout,
+      # viewer-i18n, the per-site data packages) are deliberately NOT listed
+      # here either — not because Dependabot can't reach them (they publish
+      # to the public npmjs registry, so no token is involved), but because
+      # their rollout is a human decision: propagation is driven by the
+      # operator running tools/propagate.mjs, which only opens a pull request
+      # once a release is actually meant to reach sites. See MAINTENANCE.md.
       - name: Enable auto-merge
         if: >-
           (

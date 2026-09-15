@@ -60,7 +60,7 @@ lands.
 export GH_TOKEN=$(gh auth token)
 docker run --rm -it \
   -e GH_TOKEN \
-  -v "$PWD:/w" -v "$HOME/.npmrc:/root/.npmrc:ro" \
+  -v "$PWD:/w" \
   -w /w node:lts-alpine sh -c "apk add --no-cache git github-cli >/dev/null && \
     node tools/propagate.mjs --expect viewer-core@1.0.0 --expect viewer-layout@1.0.0"
 ```
@@ -72,6 +72,12 @@ token then. `gh auth token` reads the real token regardless of where `gh`
 stores it. The tool itself runs `gh auth setup-git` on every invocation, so
 once `gh` is authenticated (via `GH_TOKEN` or otherwise), `git push` inherits
 the same credentials.
+
+No `~/.npmrc` is mounted: the tool reads package versions off the public
+npmjs registry, which needs no credential, and rule 1 above means nothing
+else in this container needs one either. Mounting an operator's npm
+credentials into a disposable container that nothing in it authenticates
+with would be exposure for no benefit.
 
 Add `--dry-run` first if you want to see what it would do. `--repo owner/name`
 restricts it to one site; `--no-merge` opens the pull requests without enabling
